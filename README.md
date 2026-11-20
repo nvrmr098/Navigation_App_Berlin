@@ -1,14 +1,29 @@
 # Berlin Route (Android)
 
-A WebView-based Android app that shows a route intro animation:
-the S1 track (elevated) and U5 track (underground) appear one after the other, then the
-vehicle travels the route, then live navigation starts.
+A WebView-based Android app that makes the Berlin S-Bahn and U-Bahn easier to understand for newcomers.
+Everything runs offline: the map, search and route finding are bundled in the app.
 
-Screens (in `app/src/main/assets/www/`):
-- `index.html`  real map: OpenStreetMap streets and 3D buildings (MapLibre GL + OpenFreeMap tiles), animated route and camera
-- `layers.html` stylized 3D scene: elevated S1, underground U5, street-level tram, city layer (Three.js)
+## What it does
 
-Map libraries are bundled in `www/lib/`, so only the map tiles need internet.
+- **Map** (left tab): one combined S-Bahn and U-Bahn map, own drawing, with a filter (S + U, S-Bahn only, U-Bahn only), pan and zoom, station search with suggestions, tap a station for its lines.
+- **Navigate** (middle tab): start and destination fields with a suggestion list, swap button, fastest route and a "fewer changes" alternative, step list with line, direction and stops, share, recent trips and favorites.
+- **Start**: a short intro shows each line of the route appearing with arrows, a marker runs along the route, then live navigation begins. 2D is the default; the 3D button switches to a generic city with identical buildings (S-Bahn elevated, U-Bahn underground).
+- **More** (right tab): favorites, recent trips, service updates (placeholder), ticket zones, dark mode, step-free option (placeholder), language (placeholder), share, feedback, privacy, about and data credits.
+
+## Files (`app/src/main/assets/www/`)
+
+- `index.html`, `app.js`: user interface, map drawing, navigation mode, 3D view
+- `route.js`: routing engine (Dijkstra over line and station nodes, boarding waits, transfer walking times)
+- `data.js`: generated network data (310 stations, 24 lines)
+- `lib/three.min.js`: Three.js r128 (MIT)
+
+## Regenerating the data
+
+`scripts/build_data.py` builds `data.js` from the npm packages `vbb-lines`, `vbb-stations` and `vbb-line-colors`:
+
+    python3 -I scripts/build_data.py <folder with the extracted npm packages> app/src/main/assets/www/data.js
+
+Source data: VBB Verkehrsverbund Berlin-Brandenburg GmbH via daten.berlin.de, licence CC BY 3.0. The credit text is in the app (More > About) and must stay.
 
 ## Build
 
@@ -16,8 +31,11 @@ Android Studio (recommended): open this folder, let Gradle sync, press Run, or
 Build > Build App Bundle(s) / APK(s) > Build APK(s).
 
 Command line (needs JDK 17+ and the Android SDK; create the wrapper once with `gradle wrapper`):
+
     ./gradlew assembleDebug        # app/build/outputs/apk/debug/app-debug.apk
     ./gradlew bundleRelease        # AAB for Google Play (needs a signing key)
+
+The workflow in `.github/workflows/build-apk.yml` builds a debug APK on GitHub.
 
 ## Before you publish
 
@@ -25,13 +43,14 @@ Command line (needs JDK 17+ and the Android SDK; create the wrapper once with `g
 - Check Google Play's current target API level requirement and raise `targetSdk` if needed.
 - Sign the release build (Play App Signing with an upload key).
 - Add a privacy policy page (required by Play).
-- Keep the map credits visible (OpenFreeMap, OpenMapTiles, OpenStreetMap).
-- Free public tile servers are fine for a demo. For production, self-host or use a paid tile provider.
+- Do not use BVG or S-Bahn Berlin logos or their official map design.
 
 ## Known limits
 
-- Station coordinates are approximate and the lines are straight segments. Use VBB GTFS shapes for real tracks.
-- Departure info on the live card is placeholder text.
-- Vehicle models are generic boxes, not real train designs.
-- This project was written without access to the Android SDK, so it has not been compiled yet. If Gradle reports a version problem, update the plugin versions in the root `build.gradle.kts`.
-- The OpenFreeMap style URL may change. Check `style:` in `index.html` if the map stays blank.
+- Travel times are estimates (distance, average speeds, typical waits), not a live timetable. Real timetable routing (GTFS with RAPTOR) and live delays from the VBB interface are the next step.
+- Lines S4 and S45 are not in the source data. U4 was added by hand.
+- Lines are straight segments between stations (geographic with a spread-out centre). A fully hand-drawn 45 degree layout would be easier to read and is a good next design step.
+- Bus and tram are not included yet.
+- The 3D view is generic: boxes for buildings and trains, no real landmarks.
+- Step-free routing, language switch and service updates are placeholders.
+- This project was written without access to the Android SDK, so it has not been compiled here. If Gradle reports a version problem, update the plugin versions in the root `build.gradle.kts`.
