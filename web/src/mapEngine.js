@@ -1,12 +1,14 @@
 /* Canvas 2D map: network drawing, labels, route overlay, pan and zoom. React owns the state, this class owns the pixels. */
 import { R, ST, INFO, edges, rank, BB, clamp, pointAt } from './net.js';
 
+const FONT = '"Inter Variable", Inter, system-ui, sans-serif';
+
 export class MapEngine {
   constructor(cv, cb) {
     this.cv = cv; this.ctx = cv.getContext('2d'); this.cb = cb;
     this.W = 0; this.H = 0; this.dpr = 1;
     this.view = { cx: 1.5, cy: -0.5, z: 15 }; this.z0 = 15;
-    this.filter = 'both'; this.selected = -1; this.overlay = null; this.lbl = true;
+    this.filter = 'both'; this.selected = -1; this.overlay = null; this.lbl = true; this.user = null;
     this.needs = false; this.hit = []; this.ptrs = {}; this.down = null; this.lastPinch = 0; this.inited = false;
     this.css = {};
     this.onDown = (e) => {
@@ -90,7 +92,7 @@ export class MapEngine {
   }
   readCss() {
     const cs = getComputedStyle(document.body);
-    this.css = { map: cs.getPropertyValue('--map').trim() || '#f4f2ee', accent: cs.getPropertyValue('--accent').trim() || '#0a6cff' };
+    this.css = { map: cs.getPropertyValue('--map').trim() || '#eef1f9', map2: cs.getPropertyValue('--map2').trim() || '#ffffff', accent: cs.getPropertyValue('--accent').trim() || '#4f6bff' };
     this.dark = document.body.classList.contains('dark');
   }
 
@@ -98,7 +100,9 @@ export class MapEngine {
     const { ctx, W, H } = this; if (!W) return;
     this.readCss(); const dark = this.dark, view = this.view, overlay = this.overlay;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    ctx.globalAlpha = 1; ctx.fillStyle = this.css.map; ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 1;
+    const g = ctx.createRadialGradient(W / 2, H * 0.46, 10, W / 2, H * 0.46, Math.max(W, H) * 0.75);
+    g.addColorStop(0, this.css.map2); g.addColorStop(1, this.css.map); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
     const k = view.z / this.z0, dim = overlay ? 0.2 : 1;
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     const lw = clamp(3.2 * Math.sqrt(k), 2.4, 7.5);
@@ -125,8 +129,8 @@ export class MapEngine {
       const x = this.sx(s.x), y = this.sy(s.y); if (x < -20 || x > W + 20 || y < -20 || y > H + 20) return;
       const tr = ls.length > 1, r = (tr ? 4.4 : 2.7) * clamp(Math.sqrt(k), 0.8, 1.6);
       ctx.globalAlpha = overlay ? 0.35 : 1;
-      ctx.beginPath(); ctx.arc(x, y, r, 0, 6.2832); ctx.fillStyle = dark ? '#2b2b29' : '#fff'; ctx.fill();
-      ctx.lineWidth = tr ? 2.2 : 1.6; ctx.strokeStyle = dark ? '#f1efe9' : '#1d1d1b'; ctx.stroke();
+      ctx.beginPath(); ctx.arc(x, y, r, 0, 6.2832); ctx.fillStyle = dark ? '#171a27' : '#fff'; ctx.fill();
+      ctx.lineWidth = tr ? 2.4 : 1.7; ctx.strokeStyle = dark ? '#e9ecf5' : '#12162a'; ctx.stroke();
       visible.push({ s, x, y, r });
     });
     ctx.globalAlpha = 1;
@@ -137,6 +141,7 @@ export class MapEngine {
       ctx.beginPath(); ctx.arc(x, y, 4, 0, 6.2832); ctx.fillStyle = this.css.accent; ctx.fill();
     }
     if (overlay && overlay.marker != null) this.drawMarker();
+    if (this.user) this.drawUser();
     this.hit = visible;
   }
 
@@ -150,8 +155,8 @@ export class MapEngine {
     }
     if (this.selected >= 0) force[this.selected] = 1;
     vis.sort((a, b) => (force[b.s.i] ? 1e6 : 0) - (force[a.s.i] ? 1e6 : 0) || rank[a.s.i] - rank[b.s.i]);
-    ctx.font = (k > 3 ? 13 : 11.5) + 'px system-ui,sans-serif'; ctx.textBaseline = 'middle';
-    const ink = dark ? '#f1efe9' : '#1d1d1b', halo = this.css.map; let n = 0;
+    ctx.font = '600 ' + (k > 3 ? 13 : 11.5) + 'px ' + FONT; ctx.textBaseline = 'middle';
+    const ink = dark ? '#eef0f8' : '#12162a', halo = this.css.map; let n = 0;
     for (let i = 0; i < vis.length; i++) {
       const v = vis[i], f = force[v.s.i];
       if (!f && !onRoute[v.s.i] && n >= maxN) break;
@@ -212,9 +217,15 @@ export class MapEngine {
       ctx.beginPath(); ctx.arc(x, y, isEnd ? 8 : 4.2, 0, 6.2832); ctx.fillStyle = '#fff'; ctx.fill(); ctx.lineWidth = 2.5; ctx.strokeStyle = o.route.legs[li].c; ctx.stroke();
       if (first || last) {
         ctx.beginPath(); ctx.arc(x, y, 11, 0, 6.2832); ctx.fillStyle = first ? this.css.accent : '#e5231b'; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#fff'; ctx.stroke();
-        ctx.fillStyle = '#fff'; ctx.font = 'bold 12px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(first ? 'A' : 'B', x, y + 0.5); ctx.textAlign = 'left';
+        ctx.fillStyle = '#fff'; ctx.font = '700 12px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(first ? 'A' : 'B', x, y + 0.5); ctx.textAlign = 'left';
       }
     });
+  }
+  drawUser() {
+    const ctx = this.ctx, u = this.user, x = this.sx(u.x), y = this.sy(u.y), pul = 16 + 5 * Math.sin(Date.now() / 300);
+    ctx.beginPath(); ctx.arc(x, y, pul, 0, 6.2832); ctx.fillStyle = 'rgba(34,196,255,.22)'; ctx.fill();
+    ctx.beginPath(); ctx.arc(x, y, 8, 0, 6.2832); ctx.fillStyle = '#22a6ff'; ctx.fill(); ctx.lineWidth = 3.5; ctx.strokeStyle = '#fff'; ctx.stroke();
+    if (this.userAnim) this.schedule();
   }
   drawMarker() {
     const ctx = this.ctx, o = this.overlay, m = pointAt(o, o.marker), x = this.sx(m.x), y = this.sy(m.y);

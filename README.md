@@ -67,3 +67,13 @@ The workflow in `.github/workflows/build-apk.yml` builds a debug APK on GitHub.
 - The 3D view is generic: boxes for buildings and trains, no real landmarks.
 - Step-free routing, language switch and service updates are placeholders.
 - This project was written without access to the Android SDK, so it has not been compiled here. If Gradle reports a version problem, update the plugin versions in the root `build.gradle.kts`.
+
+
+## Version 0.4: live GPS, real 3D, new design
+
+- **Live navigation with GPS**: tap Start, choose "Live navigation with GPS". The app follows your position along the route, announces the next stop, warns when you leave the route and offers a reroute. Without GPS (for example in a tunnel) it continues with a timetable estimate. Choose "Demo ride" to preview without moving.
+- **Real 3D city**: the 3D view uses MapLibre with OpenFreeMap (real OpenStreetMap buildings). It needs internet. Offline it falls back to a simple generic 3D city.
+- **Modern UI**: glass surfaces, floating dock, bottom sheets, automatic light and dark theme.
+- **Permissions**: location (only while the app is open) and vibration. Your position never leaves the device.
+- **Credits**: OpenFreeMap, OpenMapTiles, OpenStreetMap contributors (ODbL), VBB open data (CC BY 3.0).
+- Test GPS on a real device. Browser previews need https for location (GitHub Pages is https).

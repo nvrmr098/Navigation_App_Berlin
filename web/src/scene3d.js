@@ -22,8 +22,8 @@ export class Scene3D {
     this.r = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.scene = new THREE.Scene();
     this.cam = new THREE.PerspectiveCamera(50, 1, 0.05, 80);
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x8d887c, 2.6));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.9); sun.position.set(3, 6, 2); this.scene.add(sun);
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x8d887c, 2.0));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.4); sun.position.set(3, 6, 2); this.scene.add(sun);
     this.group = new THREE.Group(); this.scene.add(this.group);
     this.camPos = new THREE.Vector3(); this.look = new THREE.Vector3(); this.curLeg = -1;
   }
