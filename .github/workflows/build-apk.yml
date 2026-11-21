@@ -10,6 +10,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build the web app (React) into the Android assets
+        run: |
+          cd web
+          npm ci
+          npm run build
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

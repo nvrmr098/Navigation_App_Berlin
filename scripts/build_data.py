@@ -163,7 +163,8 @@ net = dict(
     credit='Station and line data: VBB Verkehrsverbund Berlin-Brandenburg GmbH via daten.berlin.de (CC BY 3.0), prepared with vbb-lines and vbb-stations by Jannis R.',
 )
 with open(out, 'w', encoding='utf-8') as f:
-    f.write('window.NET=' + json.dumps(net, ensure_ascii=False, separators=(',', ':')) + ';\n')
+    body = json.dumps(net, ensure_ascii=False, separators=(',', ':'))
+    f.write(body + '\n' if out.endswith('.json') else 'window.NET=' + body + ';\n')
 
 print('stations', len(stations), 'lines', len(lines))
 print('S lines', [k for k, v in lines.items() if v['p'] == 'S'])
