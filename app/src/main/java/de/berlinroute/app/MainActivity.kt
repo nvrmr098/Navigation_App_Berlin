@@ -1,6 +1,11 @@
 package de.berlinroute.app
 
 import android.annotation.SuppressLint
+import android.graphics.Color
+import android.widget.FrameLayout
+import java.io.ByteArrayInputStream
+import java.net.HttpURLConnection
+import java.net.URL
 import android.content.ActivityNotFoundException
 import android.Manifest
 import android.content.Intent
@@ -32,6 +37,7 @@ import androidx.webkit.WebViewAssetLoader
 class MainActivity : AppCompatActivity() {
 
     private lateinit var web: WebView
+    private lateinit var root: FrameLayout
 
     // pending request from the page while the Android permission dialog is open
     private var geoOrigin: String? = null
@@ -50,8 +56,18 @@ class MainActivity : AppCompatActivity() {
         ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
             ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
-    /** Small bridge so the page can keep the screen on while navigating. */
+    /** Small bridge so the page can keep the screen on while navigating and match the system bars to the app theme. */
     inner class Bridge {
+        @JavascriptInterface
+        fun setTheme(dark: Boolean) {
+            runOnUiThread {
+                root.setBackgroundColor(if (dark) 0xFF090B12.toInt() else 0xFFF2F4FA.toInt())
+                val c = WindowCompat.getInsetsController(window, root)
+                c.isAppearanceLightStatusBars = !dark
+                c.isAppearanceLightNavigationBars = !dark
+            }
+        }
+
         @JavascriptInterface
         fun keepScreenOn(on: Boolean) {
             runOnUiThread {
@@ -66,12 +82,19 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
+        // The WebView is a child of a padded container. Padding on the WebView itself does not shrink the web
+        // content, so the container keeps the app clear of the status bar, the gesture bar and the keyboard.
+        root = FrameLayout(this)
+        root.setBackgroundColor(0xFF0E1220.toInt())
         web = WebView(this)
-        setContentView(web)
-        ViewCompat.setOnApplyWindowInsetsListener(web) { v, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+        root.addView(web, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        setContentView(root)
+        ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+            val bars = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.ime()
+            )
             v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            insets
+            WindowInsetsCompat.CONSUMED
         }
 
         val loader = WebViewAssetLoader.Builder()
@@ -85,7 +108,7 @@ class MainActivity : AppCompatActivity() {
             allowContentAccess = false
             setGeolocationEnabled(true)
         }
-        web.setBackgroundColor(0xFF0E0F13.toInt())
+        web.setBackgroundColor(Color.TRANSPARENT)
         web.addJavascriptInterface(Bridge(), "AndroidBridge")
 
         web.webChromeClient = object : WebChromeClient() {
@@ -112,7 +135,11 @@ class MainActivity : AppCompatActivity() {
             override fun shouldInterceptRequest(
                 view: WebView,
                 request: WebResourceRequest
-            ): WebResourceResponse? = loader.shouldInterceptRequest(request.url)
+            ): WebResourceResponse? {
+                // live departures: fetch natively so the page never runs into cross origin limits
+                if (request.url.host == LIVE_HOST && request.method == "GET") proxy(request)?.let { return it }
+                return loader.shouldInterceptRequest(request.url)
+            }
 
             override fun shouldOverrideUrlLoading(
                 view: WebView,
@@ -145,6 +172,26 @@ class MainActivity : AppCompatActivity() {
         } else {
             web.restoreState(savedInstanceState)
         }
+    }
+
+    private fun proxy(request: WebResourceRequest): WebResourceResponse? = try {
+        val c = URL(request.url.toString()).openConnection() as HttpURLConnection
+        c.connectTimeout = 8000
+        c.readTimeout = 10000
+        c.requestMethod = "GET"
+        c.setRequestProperty("Accept", "application/json")
+        c.setRequestProperty("User-Agent", "Bearline/0.5 (Android)")
+        val code = c.responseCode
+        val body = if (code in 200..299) c.inputStream else (c.errorStream ?: ByteArrayInputStream(ByteArray(0)))
+        val reason = c.responseMessage?.takeIf { it.isNotBlank() } ?: if (code in 200..299) "OK" else "Error"
+        val status = if (code in 200..299 || code in 400..599) code else 502
+        WebResourceResponse("application/json", "utf-8", status, reason, mapOf("Access-Control-Allow-Origin" to "*"), body)
+    } catch (e: Exception) {
+        null
+    }
+
+    companion object {
+        private const val LIVE_HOST = "v6.vbb.transport.rest"
     }
 
     override fun onSaveInstanceState(outState: Bundle) {

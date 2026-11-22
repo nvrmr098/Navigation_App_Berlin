@@ -2,23 +2,27 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { R, ST, clamp, pointAt } from './net.js';
 import { MapEngine } from './mapEngine.js';
 import { GpsTracker, project, distKm, nearestStation, snapToRoute, geoAt, getPositionOnce, haptic, keepAwake } from './geo.js';
-import { Badge, Badges, SearchBox, Ico } from './ui.jsx';
-import { NavPage, MorePage, ModalContent, StartSheet } from './pages.jsx';
+import { Badge, SearchBox, Ico, Splash, BerlinClock } from './ui.jsx';
+import { NavPage, MorePage, NearbyPage, ModalContent, StartSheet } from './pages.jsx';
+import { setLang, tr, cnt, fmtTime } from './i18n.js';
 
 const loadStore = () => {
-  const base = { theme: 'auto', fav: [], rec: [], lbl: true, step: false, real3d: true, awake: true, haptics: true };
+  const base = { theme: 'auto', lang: 'en', home: '', work: '', fav: [], rec: [], lbl: true, step: false, real3d: true, awake: true, haptics: true };
   try {
-    const raw = localStorage.getItem('br1');
+    const raw = localStorage.getItem('br1') || localStorage.getItem('bl1');
     if (raw) { const o = JSON.parse(raw); Object.assign(base, o); if (o.dark && !o.theme) base.theme = 'dark'; }
   } catch (e) { /* storage may be unavailable */ }
   return base;
 };
 const fmtDist = (km) => (km < 1 ? Math.round(km * 1000 / 10) * 10 + ' m' : km.toFixed(1) + ' km');
-const GPS_TEXT = { ok: 'GPS good', weak: 'GPS weak', searching: 'Searching for GPS', asking: 'Allow location', denied: 'Location denied', unavailable: 'GPS unavailable', idle: 'GPS' };
-const PAGES = ['pMap', 'pNav', 'pMore'];
+const PAGES = ['pMap', 'pNav', 'pNear', 'pMore'];
 
 export default function App() {
   const [store, setStore] = useState(loadStore);
+  setLang(store.lang);
+  const [booted, setBooted] = useState(false);
+  const [when, setWhen] = useState({ mode: 'now', ts: 0 });
+  const [boardName, setBoardName] = useState('');
   const [page, setPage] = useState('pMap');
   const [filter, setFilter] = useState('both');
   const [selected, setSelected] = useState(-1);
@@ -49,18 +53,21 @@ export default function App() {
   const say = useCallback((t) => { setToast(t); clearTimeout(toastT.current); toastT.current = setTimeout(() => setToast(''), 2400); }, []);
 
   // ---------- persistence and theme ----------
-  useEffect(() => { try { localStorage.setItem('br1', JSON.stringify(store)); } catch (e) { /* ignore */ } if (eng.current) { eng.current.lbl = !!store.lbl; eng.current.schedule(); } }, [store]);
+  useEffect(() => { try { localStorage.setItem('bl1', JSON.stringify(store)); } catch (e) { /* ignore */ } if (eng.current) { eng.current.lbl = !!store.lbl; eng.current.schedule(); } }, [store]);
   useEffect(() => {
     const mqd = window.matchMedia('(prefers-color-scheme: dark)');
     const apply = () => {
       const dark = store.theme === 'dark' || (store.theme === 'auto' && mqd.matches);
       document.body.classList.toggle('dark', dark);
       const tc = document.querySelector('meta[name=theme-color]'); if (tc) tc.content = dark ? '#090b12' : '#f2f4fa';
+      try { window.AndroidBridge && window.AndroidBridge.setTheme && window.AndroidBridge.setTheme(dark); } catch (e) { /* not in the app */ }
       if (eng.current) eng.current.schedule();
       if (viewRef.current === 'generic' && scene.current && ov.current) scene.current.build(ov.current, dark);
     };
     apply(); mqd.addEventListener('change', apply); return () => mqd.removeEventListener('change', apply);
   }, [store.theme]);
+
+  useEffect(() => { document.documentElement.lang = store.lang; }, [store.lang]);
 
   // ---------- map engine and GPS tracker ----------
   useEffect(() => {
@@ -76,7 +83,7 @@ export default function App() {
       if (locateFirst.current) {
         locateFirst.current = false;
         const near = nearestStation(f.lat, f.lng);
-        if (near.km > 45) { say('You are outside the Berlin network area'); }
+        if (near.km > 45) { say(tr('outsideBerlin')); }
         else { e.view.cx = pr.x; e.view.cy = pr.y; e.view.z = Math.max(e.view.z, e.z0 * 3); e.schedule(); }
       }
       if (L.on && L.source === 'gps' && ov.current) {
@@ -89,7 +96,7 @@ export default function App() {
   }, [say]);
   useEffect(() => { const e = eng.current; if (!e) return; e.filter = filter; e.selected = selected; e.schedule(); }, [filter, selected]);
   useEffect(() => { if (page === 'pMap' && eng.current) eng.current.resize(); }, [page]);
-  useEffect(() => { if (gpsStatus === 'denied' && live.current.on && live.current.source === 'gps') { live.current.source = 'demo'; setSource('demo'); say('Location permission denied. Switched to a demo ride.'); } }, [gpsStatus, say]);
+  useEffect(() => { if (gpsStatus === 'denied' && live.current.on && live.current.source === 'gps') { live.current.source = 'demo'; setSource('demo'); say(tr('permDemo')); } }, [gpsStatus, say]);
 
   // ---------- helpers ----------
   const filterFor = (s) => { if (!s.lines.some((l) => filter === 'both' || (filter === 'S' ? /^S/.test(l) : /^U/.test(l)))) setFilter('both'); };
@@ -99,7 +106,7 @@ export default function App() {
     setStore((s) => ({ ...s, rec: [[a, b], ...s.rec.filter((x) => !(x[0] === a && x[1] === b))].slice(0, 6) }));
   };
   const computeRoutes = (from, to) => {
-    if (from && to && from === to) { say('Start and destination are the same'); return []; }
+    if (from && to && from === to) { say(tr('sameStation')); return []; }
     return from && to ? R.routes(from.i, to.i) : [];
   };
   const setFrom = (s) => { setNav((n) => ({ ...n, from: s, routes: computeRoutes(s, n.to), sel: 0 })); setFq(s ? s.name : ''); };
@@ -107,18 +114,18 @@ export default function App() {
   const clearRoutes = (key) => setNav((n) => ({ ...n, [key]: null, routes: [], sel: 0 }));
   const swap = () => { setNav((n) => ({ ...n, from: n.to, to: n.from, routes: computeRoutes(n.to, n.from), sel: 0 })); setFq(tq); setTq(fq); };
   const shareRoute = (r) => {
-    const t = 'Berlin Route: ' + ST[r.from].name + ' to ' + ST[r.to].name + ', ' + r.minutes + ' min. ' + r.legs.map((l) => l.line + ' towards ' + l.toward + ' (' + l.stops + ' stops)').join(', then ') + '.';
+    const t = 'Bearline: ' + ST[r.from].name + ' ' + tr('to') + ' ' + ST[r.to].name + ', ' + r.minutes + ' ' + tr('min') + '. ' + r.legs.map((l) => l.line + ' ' + tr('towards') + ' ' + l.toward + ' (' + cnt('stop', l.stops) + ')').join(' > ') + '.';
     if (navigator.share) navigator.share({ text: t }).catch(() => {});
-    else if (navigator.clipboard) navigator.clipboard.writeText(t).then(() => say('Route copied'), () => say('Sharing not available'));
-    else say('Sharing not available');
+    else if (navigator.clipboard) navigator.clipboard.writeText(t).then(() => say(tr('routeCopied')), () => say(tr('shareNA')));
+    else say(tr('shareNA'));
   };
   const useMyLocation = async () => {
-    say('Finding your location...');
+    say(tr('finding'));
     try {
       const p = await getPositionOnce(); const n = nearestStation(p.lat, p.lng);
-      if (n.km > 6) { say('No station within 6 km of you'); return; }
-      setFrom(n.st); say('Nearest station: ' + n.st.name + ' (' + fmtDist(n.km) + ')');
-    } catch (err) { say(err && err.code === 1 ? 'Location permission denied' : 'Could not get your location'); }
+      if (n.km > 6) { say(tr('noStation6')); return; }
+      setFrom(n.st); say(tr('nearest') + ' ' + n.st.name + ' (' + fmtDist(n.km) + ')');
+    } catch (err) { say(err && err.code === 1 ? tr('locDenied') : tr('gpsFail')); }
   };
   const toggleLocate = () => {
     const e = eng.current;
@@ -137,7 +144,7 @@ export default function App() {
     remember(r); const o = makeOverlay(r); ov.current = o; eng.current.overlay = o; setFilter('both');
     live.current.on = false; live.current.phase = 'idle'; resetView(); setPaused(false); setFinished(false);
     setPage('pMap'); setSelected(-1); setMode('show');
-    pushInfo({ lines: r.legs.map((l) => l.line), title: r.minutes + ' min', sub: ST[r.from].name + ' to ' + ST[r.to].name, pct: 0, hud: '', intro: null, off: null });
+    pushInfo({ lines: r.legs.map((l) => l.line), title: r.minutes + ' min', sub: ST[r.from].name + ' ' + tr('to') + ' ' + ST[r.to].name, pct: 0, hud: '', intro: null, off: null });
     setTimeout(() => { eng.current.resize(); eng.current.fitPoints(o.path.pts, 130, 190); }, 30);
   };
 
@@ -156,11 +163,11 @@ export default function App() {
     if (L.phase === 'intro') {
       const t = (now - L.t0) / 1000, per = n === 1 ? 1.6 : Math.min(1.3, 3.2 / n), runStart = per * n + 0.3, runLen = 1.6;
       o.reveal = r.legs.map((_, i) => clamp((t - i * per) / per, 0, 1));
-      const li = clamp(Math.floor(t / per), 0, n - 1), base = { lines: [], title: 'Your route', sub: ST[r.from].name + ' to ' + ST[r.to].name, pct: 0, hud: '', off: null };
+      const li = clamp(Math.floor(t / per), 0, n - 1), base = { lines: [], title: tr('yourRoute'), sub: ST[r.from].name + ' ' + tr('to') + ' ' + ST[r.to].name, pct: 0, hud: '', off: null };
       if (t < per * n) { o.marker = null; pushInfo({ ...base, intro: { first: li === 0, line: r.legs[li].line, toward: r.legs[li].toward } }); }
       else if (t < runStart + runLen) {
         let f = clamp((t - runStart) / runLen, 0, 1); f = f * f * (3 - 2 * f); o.marker = f * last * 0.999;
-        pushInfo({ ...base, intro: { text: 'Off we go' } });
+        pushInfo({ ...base, intro: { text: tr('offWeGo') } });
       } else { L.phase = 'live'; L.p = 0; L.target = 0; o.marker = 0; L.follow = true; setMode('live'); }
     }
     if (L.phase === 'live') {
@@ -187,14 +194,14 @@ export default function App() {
       const fin = p >= last - 0.03, lastLeg = li === n - 1, nl = r.legs[li + 1];
       let title, sub, hud, off = null;
       if (fin) {
-        title = 'You have arrived'; sub = ST[r.to].name; hud = ST[r.to].name;
+        title = tr('arrived'); sub = ST[r.to].name; hud = ST[r.to].name;
         if (!L.done) { L.done = true; if (storeRef.current.haptics) haptic([300, 120, 300]); setFinished(true); }
       } else {
         L.done = false;
         const dNext = L.fix && gps ? ' · ' + fmtDist(distKm(L.fix.lat, L.fix.lng, nextSt.lat, nextSt.lng)) : '';
-        title = lg.line + ' towards ' + lg.toward;
-        sub = left <= 1 ? (lastLeg ? 'Get off at ' + endSt.name : 'Get off at ' + endSt.name + ', change to ' + nl.line + ' towards ' + nl.toward) : 'Next: ' + nextSt.name + dNext + '. ' + left + ' stops until ' + endSt.name;
-        hud = 'Next: ' + nextSt.name;
+        title = lg.line + ' ' + tr('towards') + ' ' + lg.toward;
+        sub = left <= 1 ? (lastLeg ? tr('getOff', { end: endSt.name }) : tr('getOffChange', { end: endSt.name, line: nl.line, toward: nl.toward })) : tr('nextLine', { next: nextSt.name, d: dNext, n: left, end: endSt.name });
+        hud = tr('nextHud', { next: nextSt.name });
         if (left <= 1 && L.alerted !== 'leg' + li) { L.alerted = 'leg' + li; if (storeRef.current.haptics) haptic([180, 90, 180]); }
         if (left > 1 && L.alerted === 'leg' + li) L.alerted = '';
       }
@@ -228,14 +235,14 @@ export default function App() {
   const toggle3d = async (opts) => {
     if (viewRef.current !== '2d' || loadingRef.current) { resetView(); live.current.follow = true; eng.current.schedule(); return; }
     const wantReal = storeRef.current.real3d && navigator.onLine !== false;
-    if (!wantReal) { if (!storeRef.current.real3d) say('Simple 3D (real city is off in settings)'); else say('Offline: showing simple 3D'); await openGeneric(); return; }
+    if (!wantReal) { if (!storeRef.current.real3d) say(tr('simple3dOff')); else say(tr('simple3dOffline')); await openGeneric(); return; }
     loadingRef.current = true; setLoading3d(true);
     const { RealMap3D, mockStyle } = await import('./realmap.js');
     const o = ov.current, g0 = geoAt(o, 0);
     const rm = new RealMap3D(realDiv.current, {
       dark: document.body.classList.contains('dark'), styleOverride: opts && opts.mock ? mockStyle(g0.lng, g0.lat) : undefined,
       onReady: () => { if (real.current !== rm) return; loadingRef.current = false; setLoading3d(false); viewRef.current = 'real'; setView('real'); rm.resize(); rm.setLeg(o, Math.max(0, live.current.leg)); },
-      onFail: () => { if (real.current !== rm) return; rm.destroy(); real.current = null; loadingRef.current = false; setLoading3d(false); say('City 3D needs internet. Showing simple 3D.'); openGeneric(); },
+      onFail: () => { if (real.current !== rm) return; rm.destroy(); real.current = null; loadingRef.current = false; setLoading3d(false); say(tr('city3dFail')); openGeneric(); },
       onUserMove: () => { live.current.follow = false; },
     });
     real.current = rm; rm.init(o);
@@ -251,9 +258,9 @@ export default function App() {
   const reroute = () => {
     const L = live.current, f = L.fix, dest = ov.current.route.to; if (!f) return;
     const n = nearestStation(f.lat, f.lng).st;
-    if (n.i === dest) { say('You are already at the destination'); return; }
-    const rs = R.routes(n.i, dest); if (!rs.length) { say('No route from here'); return; }
-    L.on = false; startNav(rs[0], 'gps'); say('New route from ' + n.name);
+    if (n.i === dest) { say(tr('alreadyThere')); return; }
+    const rs = R.routes(n.i, dest); if (!rs.length) { say(tr('noRouteHere')); return; }
+    L.on = false; startNav(rs[0], 'gps'); say(tr('newRouteFrom') + ' ' + n.name);
   };
 
   // ---------- test hook: #from=A&to=B&act=show|start&gps=1&p=pNav&f=S&sel=Name&zoom=2&skip=1&adv=3&d3=300&mock=1&dark=1 ----------
@@ -277,6 +284,11 @@ export default function App() {
       }
       if (q.offer && routes.length) setStartOffer(routes[0]);
       if (q.locate) toggleLocate();
+      if (q.modal) { if (q.bn) setBoardName(q.bn); setModal(q.modal); }
+      if (q.lang) setStore((o) => ({ ...o, lang: q.lang }));
+      if (q.home) setStore((o) => ({ ...o, home: q.home, work: q.work || '', fav: q.fav ? q.fav.split('|') : o.fav }));
+      if (q.nosplash) setBooted(true);
+      if (q.when) setWhen({ mode: q.when, ts: Date.now() + (+q.wm || 30) * 60000 });
       if (q.p) setPage(q.p);
     }, 60);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -285,11 +297,20 @@ export default function App() {
   // ---------- render ----------
   const navActive = mode !== 'idle';
   const sel = selected >= 0 ? ST[selected] : null;
-  const isFav = sel && store.fav.indexOf(sel.name) >= 0;
+  const isFav = !!(sel && store.fav.indexOf(sel.name) >= 0);
   const gpsNav = mode === 'live' || mode === 'intro';
-  const openModal = (k) => { if (k === 'share') { const t = 'Berlin Route: an easier way to understand the Berlin S-Bahn and U-Bahn.'; if (navigator.share) navigator.share({ text: t }).catch(() => {}); else say('Sharing not available here'); return; } setModal(k); };
+  const openModal = (k) => { if (k === 'share') { const t = 'Bearline: ' + tr('tagline'); if (navigator.share) navigator.share({ text: t }).catch(() => {}); else say(tr('shareNA')); return; } setModal(k); };
+  const openBoard = (name) => { setBoardName(name); setStartOffer(null); setModal('board'); };
+  const setDest = (name) => { const s = R.byName(name); if (s) { setTo(s); setPage('pNav'); } };
+  const toggleFavSel = () => { const nme = sel.name, has = store.fav.indexOf(nme) >= 0; setStore((s) => ({ ...s, fav: has ? s.fav.filter((x) => x !== nme) : [nme, ...s.fav] })); say(has ? tr('favRemoved') : tr('favAdded')); };
+  const setPlace = (k) => { const nme = sel.name; setStore((s) => ({ ...s, [k]: s[k] === nme ? '' : nme })); say(store[k] === nme ? tr('removed') : tr(k) + ': ' + nme); };
   const modalOpen = !!modal || !!startOffer;
   const closeModal = () => { setModal(null); setStartOffer(null); };
+
+  const mineChips = [];
+  if (store.home) mineChips.push(['home', store.home]);
+  if (store.work) mineChips.push(['work', store.work]);
+  store.fav.forEach((n) => mineChips.push(['star', n]));
 
   return (
     <div id="app">
@@ -301,15 +322,23 @@ export default function App() {
         <div id="top" className={navActive ? 'hide' : ''}>
           <div className="sbox">
             <Ico n="search" className="ic" />
-            <SearchBox value={mq} onChange={setMq} store={store} ddTop={58} placeholder="Search a station"
+            <SearchBox value={mq} onChange={setMq} store={store} ddTop={58} placeholder={tr('searchStation')}
               onPick={(s) => { setMq(s.name); filterFor(s); selectStation(s.i, true); }} />
-            {mq && <button className="clr" aria-label="Clear" onClick={() => setMq('')}><Ico n="close" /></button>}
+            {mq && <button className="clr" aria-label={tr('clear')} onClick={() => setMq('')}><Ico n="close" /></button>}
           </div>
-          <div className="seg glass" id="filters">
-            <button className={filter === 'both' ? 'on' : ''} onClick={() => setFilter('both')}>S + U</button>
-            <button className={filter === 'S' ? 'on' : ''} onClick={() => setFilter('S')}><span className="bdg S" style={{ background: '#3d9a4a' }}>S</span>S-Bahn</button>
-            <button className={filter === 'U' ? 'on' : ''} onClick={() => setFilter('U')}><span className="bdg U" style={{ background: '#1670b8' }}>U</span>U-Bahn</button>
+          <div className="trow">
+            <div className="seg glass" id="filters">
+              <button className={filter === 'both' ? 'on' : ''} onClick={() => setFilter('both')}>S + U</button>
+              <button className={filter === 'S' ? 'on' : ''} onClick={() => setFilter('S')}><span className="bdg S" style={{ background: '#3d9a4a' }}>S</span><span className="fl">S-Bahn</span></button>
+              <button className={filter === 'U' ? 'on' : ''} onClick={() => setFilter('U')}><span className="bdg U" style={{ background: '#1670b8' }}>U</span><span className="fl">U-Bahn</span></button>
+            </div>
+            <BerlinClock lang={store.lang} />
           </div>
+          {mineChips.length > 0 && (
+            <div className="pinrow">
+              {mineChips.map((m) => <button key={m[0] + m[1]} className="chip glass" onClick={() => { const s = R.byName(m[1]); if (s) { filterFor(s); selectStation(s.i, true); } }}><Ico n={m[0]} className="s" />{m[1]}</button>)}
+            </div>
+          )}
         </div>
 
         {navActive && (
@@ -320,15 +349,15 @@ export default function App() {
           </div>
         )}
         {gpsNav && (
-          <div className={'gpschip glass ' + (source === 'gps' ? (info.est ? 'weak' : gpsStatus) : 'demo')}><i />{source === 'gps' ? (info.est ? 'No GPS, estimating' : GPS_TEXT[gpsStatus]) : 'Demo ride'}</div>
+          <div className={'gpschip glass ' + (source === 'gps' ? (info.est ? 'weak' : gpsStatus) : 'demo')}><i />{source === 'gps' ? (info.est ? tr('noGpsEst') : tr('chip_' + gpsStatus)) : tr('demoRide')}</div>
         )}
-        {loading3d && <div className="loading3d glass"><span className="spin" />Loading 3D city</div>}
+        {loading3d && <div className="loading3d glass"><span className="spin" />{tr('loading3d')}</div>}
 
         {info.off && mode === 'live' && (
           <div className="alert glass">
             {info.off.atStart
-              ? <><b>Head to {info.off.name}</b><span>You are {fmtDist(info.off.m / 1000)} from the start of this route.</span></>
-              : <><b>You are off the route</b><span>{fmtDist(info.off.m / 1000)} from the line. Plan a new route from your nearest station?</span><button className="btn sm" onClick={reroute}><Ico n="nav" />New route from here</button></>}
+              ? <><b>{tr('headTo', { name: info.off.name })}</b><span>{tr('fromStart', { d: fmtDist(info.off.m / 1000) })}</span></>
+              : <><b>{tr('offRoute')}</b><span>{tr('offRouteSub', { d: fmtDist(info.off.m / 1000) })}</span><button className="btn sm" onClick={reroute}><Ico n="nav" />{tr('newRouteHere')}</button></>}
           </div>
         )}
 
@@ -339,57 +368,63 @@ export default function App() {
           </div>
         )}
 
-        <div id="fabs" style={sel ? { bottom: 'calc(var(--dock) + 190px)' } : navActive ? { bottom: 'calc(var(--dock) + 100px)' } : undefined}>
-          {mode === 'live' && <button className="fab glass lg" aria-label="Switch 2D or 3D" onClick={() => toggle3d()}><Ico n={view === '2d' ? 'cube' : 'flat'} />{view === '2d' ? '3D' : '2D'}</button>}
-          {!navActive && <button className={'fab glass' + (locateOn ? ' on' : '')} aria-label="My location" onClick={toggleLocate}><Ico n="locate" /></button>}
-          {view === '2d' && <button className="fab glass" aria-label="Zoom in" onClick={() => { live.current.follow = false; eng.current.zoomBy(1.5); }}>+</button>}
-          {view === '2d' && <button className="fab glass" aria-label="Zoom out" onClick={() => { live.current.follow = false; eng.current.zoomBy(1 / 1.5); }}>&minus;</button>}
-          {view === '2d' && <button className="fab glass" aria-label="Show whole network" onClick={() => { live.current.follow = false; if (ov.current) eng.current.fitPoints(ov.current.path.pts, 150, 190); else eng.current.fitAll(); }}><Ico n="map" /></button>}
+        <div id="fabs" style={sel ? { bottom: 'calc(var(--dock) + 296px)' } : navActive ? { bottom: 'calc(var(--dock) + 100px)' } : undefined}>
+          {mode === 'live' && <button className="fab glass lg" aria-label="2D / 3D" onClick={() => toggle3d()}><Ico n={view === '2d' ? 'cube' : 'flat'} />{view === '2d' ? '3D' : '2D'}</button>}
+          {!navActive && <button className={'fab glass' + (locateOn ? ' on' : '')} aria-label={tr('myLocation')} onClick={toggleLocate}><Ico n="locate" /></button>}
+          {view === '2d' && <button className="fab glass" aria-label="+" onClick={() => { live.current.follow = false; eng.current.zoomBy(1.5); }}>+</button>}
+          {view === '2d' && <button className="fab glass" aria-label="-" onClick={() => { live.current.follow = false; eng.current.zoomBy(1 / 1.5); }}>&minus;</button>}
+          {view === '2d' && <button className="fab glass" aria-label={tr('wholeNetwork')} onClick={() => { live.current.follow = false; if (ov.current) eng.current.fitPoints(ov.current.path.pts, 150, 190); else eng.current.fitAll(); }}><Ico n="map" /></button>}
         </div>
 
         {mode === 'intro' && info.intro && (
-          <div id="intro"><span className="glass">{info.intro.text ? info.intro.text : <>{info.intro.first ? 'Take ' : 'Then '}<Badge line={info.intro.line} big /> towards {info.intro.toward}</>}</span></div>
+          <div id="intro"><span className="glass">{info.intro.text ? info.intro.text : <>{info.intro.first ? tr('take') : tr('then')} <Badge line={info.intro.line} big /> {tr('towards')} {info.intro.toward}</>}</span></div>
         )}
         {mode === 'live' && !info.off && <div id="hud"><span>{info.hud}</span></div>}
 
         {(mode === 'live' || mode === 'show') && (
           <div id="navctl">
-            {mode === 'live' && source === 'demo' && <button className="btn alt" aria-label={finished ? 'Replay' : paused ? 'Resume' : 'Pause'} onClick={onPlay}><Ico n={finished || paused ? 'play' : 'pause'} />{finished ? 'Replay' : paused ? 'Resume' : 'Pause'}</button>}
-            {mode === 'live' && source === 'demo' && <button className="btn" onClick={onNext}><Ico n="next" />Next</button>}
-            {mode === 'live' && source === 'gps' && <button className="btn" onClick={onRecenter}><Ico n="locate" />Recenter</button>}
-            <button className="btn alt" style={mode === 'show' ? { flex: 1 } : undefined} onClick={endNav}><Ico n="close" />{mode === 'show' ? 'Close route' : 'End'}</button>
+            {mode === 'live' && source === 'demo' && <button className="btn alt" onClick={onPlay}><Ico n={finished || paused ? 'play' : 'pause'} />{finished ? tr('replay') : paused ? tr('resume') : tr('pause')}</button>}
+            {mode === 'live' && source === 'demo' && <button className="btn" onClick={onNext}><Ico n="next" />{tr('nextShort')}</button>}
+            {mode === 'live' && source === 'gps' && <button className="btn" onClick={onRecenter}><Ico n="locate" />{tr('recenter')}</button>}
+            <button className="btn alt" style={mode === 'show' ? { flex: 1 } : undefined} onClick={endNav}><Ico n="close" />{mode === 'show' ? tr('closeRoute') : tr('end')}</button>
           </div>
         )}
 
         <div className={'sheet glass' + (sel && !navActive ? ' on' : '')}>
-          <button className="x" aria-label="Close" onClick={() => setSelected(-1)}><Ico n="close" /></button>
+          <button className="x" aria-label={tr('close')} onClick={() => setSelected(-1)}><Ico n="close" /></button>
           <h3>{sel ? sel.name : ''}</h3>
-          <div className="row">{sel && <Badges s={sel} />}</div>
+          <div className="row">{sel && sel.lines.map((l) => <Badge key={l} line={l} />)}</div>
           <div className="acts">
-            <button className="btn alt" onClick={() => { setFrom(sel); setSelected(-1); setPage('pNav'); }}>From here</button>
-            <button className="btn" onClick={() => { setTo(sel); setSelected(-1); setPage('pNav'); }}>Go here</button>
-            <button className="btn alt sq" aria-label="Favorite" onClick={() => {
-              const nme = sel.name, has = store.fav.indexOf(nme) >= 0;
-              setStore((s) => ({ ...s, fav: has ? s.fav.filter((x) => x !== nme) : [nme, ...s.fav] })); say(has ? 'Removed from favorites' : 'Added to favorites');
-            }}><Ico n="star" /><span style={{ display: 'none' }}>{isFav ? 'saved' : ''}</span></button>
+            <button className="btn alt" onClick={() => { setFrom(sel); setSelected(-1); setPage('pNav'); }}>{tr('fromHere')}</button>
+            <button className="btn" onClick={() => { setTo(sel); setSelected(-1); setPage('pNav'); }}>{tr('goHere')}</button>
           </div>
+          <div className="acts sub">
+            <button className={'btn alt sm' + (sel && store.home === sel.name ? ' on' : '')} onClick={() => setPlace('home')}><Ico n="home" />{tr('home')}</button>
+            <button className={'btn alt sm' + (sel && store.work === sel.name ? ' on' : '')} onClick={() => setPlace('work')}><Ico n="work" />{tr('work')}</button>
+            <button className={'btn alt sm' + (isFav ? ' on' : '')} onClick={toggleFavSel}><Ico n="star" />{tr('favourite')}</button>
+          </div>
+          <button className="btn alt sm wide" onClick={() => openBoard(sel.name)}><Ico n="train" />{tr('liveDepArr')}</button>
         </div>
       </section>
 
-      <NavPage on={page === 'pNav'} nav={nav} fq={fq} tq={tq} store={store}
+      <NavPage on={page === 'pNav'} nav={nav} fq={fq} tq={tq} store={store} when={when}
         setFq={(v) => { setFq(v); if (nav.from) clearRoutes('from'); }} setTq={(v) => { setTq(v); if (nav.to) clearRoutes('to'); }}
         onPickFrom={(s) => { setFrom(s); if (!navRef.current.to) setTimeout(() => document.querySelectorAll('#pNav .fld input')[1]?.focus(), 60); }} onPickTo={setTo}
         onSwap={swap} onSelect={(i) => setNav((n) => ({ ...n, sel: i }))} onShow={showOnMap} onStart={(r) => setStartOffer(r)} onShare={shareRoute}
+        onTime={() => setModal('time')} onBoard={openBoard} onPlaces={() => setModal('places')} onSetDest={setDest}
         onChipStation={(name) => { const s = R.byName(name); if (!nav.from) setFrom(s); else setTo(s); }}
         onChipTrip={(r) => { const a = R.byName(r[0]), b = R.byName(r[1]); setNav({ from: a, to: b, routes: R.routes(a.i, b.i), sel: 0 }); setFq(a.name); setTq(b.name); }}
         onLocate={useMyLocation} />
+      <NearbyPage on={page === 'pNear'} store={store} setStore={setStore} say={say} onBoard={openBoard}
+        onGo={(s) => { setTo(s); setPage('pNav'); }} onOnMap={(i) => { setPage('pMap'); selectStation(i, true); }} />
       <MorePage on={page === 'pMore'} store={store} setStore={setStore} open={openModal} toast={say} gpsStatus={gpsStatus} />
 
       <nav id="dock" className="glass">
         <span className="thumb" style={{ transform: 'translateX(' + PAGES.indexOf(page) * 100 + '%)' }} />
-        <button className={page === 'pMap' ? 'on' : ''} onClick={() => setPage('pMap')}><Ico n="map" />Map</button>
-        <button className={page === 'pNav' ? 'on' : ''} onClick={() => setPage('pNav')}><Ico n="nav" />Navigate</button>
-        <button className={page === 'pMore' ? 'on' : ''} onClick={() => setPage('pMore')}><Ico n="more" />More</button>
+        <button className={page === 'pMap' ? 'on' : ''} onClick={() => setPage('pMap')}><Ico n="map" />{tr('map')}</button>
+        <button className={page === 'pNav' ? 'on' : ''} onClick={() => setPage('pNav')}><Ico n="nav" />{tr('navigate')}</button>
+        <button className={page === 'pNear' ? 'on' : ''} onClick={() => setPage('pNear')}><Ico n="radar" />{tr('nearby')}</button>
+        <button className={page === 'pMore' ? 'on' : ''} onClick={() => setPage('pMore')}><Ico n="more" />{tr('more')}</button>
       </nav>
 
       <div className={'modal' + (modalOpen ? ' on' : '')} onPointerDown={(e) => { if (e.target === e.currentTarget) closeModal(); }}>
@@ -397,13 +432,16 @@ export default function App() {
           <div className="grab" />
           {startOffer
             ? <StartSheet route={startOffer} onGps={() => startNav(startOffer, 'gps')} onDemo={() => startNav(startOffer, 'demo')} />
-            : <ModalContent kind={modal} store={store}
+            : <ModalContent kind={modal} store={store} setStore={setStore} board={boardName} when={when} say={say}
               onFav={(n) => { closeModal(); setPage('pMap'); const s = R.byName(n); if (s) { filterFor(s); selectStation(s.i, true); } }}
+              onLang={(id) => { setStore((o) => ({ ...o, lang: id })); closeModal(); }}
+              onApplyTime={(w) => { setWhen(w); closeModal(); }}
               onTrip={(r) => { closeModal(); const a = R.byName(r[0]), b = R.byName(r[1]); setNav({ from: a, to: b, routes: R.routes(a.i, b.i), sel: 0 }); setFq(a.name); setTq(b.name); setPage('pNav'); }} />}
-          <div style={{ marginTop: 16 }}><button className="btn alt" style={{ width: '100%' }} onClick={closeModal}>{startOffer ? 'Cancel' : 'Close'}</button></div>
+          <div style={{ marginTop: 16 }}><button className="btn alt" style={{ width: '100%' }} onClick={closeModal}>{startOffer ? tr('cancel') : tr('close')}</button></div>
         </div>
       </div>
       {toast && <div className="toast">{toast}</div>}
+      {!booted && <Splash onDone={() => setBooted(true)} />}
     </div>
   );
 }

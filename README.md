@@ -1,3 +1,23 @@
+# Bearline (v0.5)
+
+Berlin S+U made simple. Android app (Kotlin WebView shell + React/Vite UI).
+
+## New in 0.5
+- Name and package id: Bearline, `de.bearline.app` (installs next to the old app)
+- Safe screen fit: the WebView sits in a padded container that respects status bar, gesture bar and cutouts
+- Languages: English (default), Deutsch, Espanol, Italiano, Francais (More > Language)
+- Start screen with animated loader
+- Time picker: leave now, depart at, arrive by (Berlin time) and a Berlin clock on the map
+- Live departures and arrivals per station, next 3 trains for a chosen route, live service updates in More
+- Saved places (Home, Work, favourites) pinned under the search bar; new Nearby tab
+- Better dark 3D map (navy palette, height-graded buildings, lighting, glowing route)
+
+## Live data
+Requests go to the public VBB API at https://v6.vbb.transport.rest (limit about 100 requests per minute). The Kotlin shell proxies these calls to add CORS headers. Data can differ from the real situation. Credit: VBB open data.
+
+## Credits
+OpenStreetMap contributors (ODbL), OpenFreeMap, OpenMapTiles, MapLibre GL, vbb-change-positions (ODbL 1.0), VBB open data (CC BY).
+
 # Berlin Route (Android)
 
 A WebView-based Android app that makes the Berlin S-Bahn and U-Bahn easier to understand for newcomers.

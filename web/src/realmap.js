@@ -40,7 +40,7 @@ export class RealMap3D {
       map.on('dragstart', () => { this.follow = false; this.opts.onUserMove && this.opts.onUserMove(); });
       map.on('load', () => {
         clearTimeout(timer); if (this.dead) return;
-        try { this.addBuildings(dark); this.addRoute(overlay); this.addMarkers(overlay); } catch (err) { fail(String(err)); return; }
+        try { this.addBuildings(dark); this.tune(dark); this.addRoute(overlay); this.addMarkers(overlay); } catch (err) { fail(String(err)); return; }
         this.loaded = true; onReady && onReady();
       });
     } catch (err) { fail(String(err)); }
@@ -55,12 +55,43 @@ export class RealMap3D {
     map.addLayer({
       id: 'rb-buildings', type: 'fill-extrusion', source: srcName, 'source-layer': 'building', minzoom: 13,
       paint: {
-        'fill-extrusion-color': dark ? '#454b5f' : '#d9d4ca',
+        'fill-extrusion-color': dark ? '#3d4a6c' : '#d9d4ca',
         'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 6],
         'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
         'fill-extrusion-opacity': 0.94,
       },
     }, firstSymbol);
+  }
+
+  /* readable colours: navy dark theme, soft light theme, height ramp on buildings, calmer labels */
+  tune(dark) {
+    const map = this.map, layers = (map.getStyle().layers || []);
+    const set = (id, prop, val) => { try { map.setPaintProperty(id, prop, val); } catch (e) { /* ignore */ } };
+    const P = dark
+      ? { bg: '#0f1626', water: '#0c2a48', green: '#12263a', land: '#141d31', road: '#34415f', main: '#54668f', rail: '#2a3550', txt: '#c4d1ee', halo: '#0f1626', b1: '#33426a', b2: '#6d83bd' }
+      : { bg: '#eef0f6', water: '#bcd8f2', green: '#dcebd3', land: '#eceef4', road: '#ffffff', main: '#fbf4e4', rail: '#cfd3de', txt: '#2b3350', halo: '#ffffff', b1: '#d4cfc6', b2: '#b9b3c8' };
+    layers.forEach((l) => {
+      const id = l.id, t = l.type, k = id.toLowerCase();
+      if (t === 'background') set(id, 'background-color', P.bg);
+      else if (t === 'fill') {
+        if (/water/.test(k)) set(id, 'fill-color', P.water);
+        else if (/park|wood|forest|grass|green|landcover|nature|golf|cemetery|pitch/.test(k)) set(id, 'fill-color', P.green);
+        else if (/building/.test(k)) set(id, 'fill-color', dark ? '#1c2742' : '#e2ded6');
+        else if (/landuse|residential|land/.test(k)) set(id, 'fill-color', P.land);
+      } else if (t === 'line') {
+        if (/water/.test(k)) set(id, 'line-color', P.water);
+        else if (/rail|transit|subway/.test(k)) set(id, 'line-color', P.rail);
+        else if (/motorway|trunk|primary|secondary|major/.test(k)) set(id, 'line-color', P.main);
+        else if (/road|street|tertiary|minor|service|path|track|highway/.test(k)) set(id, 'line-color', P.road);
+      } else if (t === 'symbol') {
+        set(id, 'text-color', P.txt); set(id, 'text-halo-color', P.halo); set(id, 'text-halo-width', 1.4);
+      } else if (t === 'fill-extrusion') {
+        set(id, 'fill-extrusion-color', ['interpolate', ['linear'], ['coalesce', ['get', 'render_height'], 6], 0, P.b1, 25, P.b1, 90, P.b2]);
+        set(id, 'fill-extrusion-opacity', dark ? 0.92 : 0.95);
+      }
+    });
+    try { map.setLight({ anchor: 'viewport', color: dark ? '#9db4ff' : '#ffffff', intensity: dark ? 0.32 : 0.4, position: [1.4, 210, 45] }); } catch (e) { /* ignore */ }
+    this.dark = dark;
   }
 
   addRoute(overlay) {
@@ -73,15 +104,16 @@ export class RealMap3D {
     const stops = pts.map((p) => ({ type: 'Feature', properties: { name: ST[p.st].name }, geometry: { type: 'Point', coordinates: [ST[p.st].lng, ST[p.st].lat] } }));
     map.addSource('rb-route', { type: 'geojson', data: { type: 'FeatureCollection', features } });
     map.addSource('rb-stops', { type: 'geojson', data: { type: 'FeatureCollection', features: stops } });
-    map.addLayer({ id: 'rb-route-case', type: 'line', source: 'rb-route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#ffffff', 'line-width': 11, 'line-opacity': 0.95 } });
-    map.addLayer({ id: 'rb-route-s', type: 'line', source: 'rb-route', filter: ['==', ['get', 'p'], 'S'], layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': ['get', 'c'], 'line-width': 7 } });
-    map.addLayer({ id: 'rb-route-u', type: 'line', source: 'rb-route', filter: ['==', ['get', 'p'], 'U'], layout: { 'line-join': 'round' }, paint: { 'line-color': ['get', 'c'], 'line-width': 8, 'line-dasharray': [2, 1.3] } });
-    map.addLayer({ id: 'rb-stops-dot', type: 'circle', source: 'rb-stops', paint: { 'circle-radius': 5.5, 'circle-color': '#ffffff', 'circle-stroke-color': '#1d1d1b', 'circle-stroke-width': 2 } });
+    map.addLayer({ id: 'rb-route-glow', type: 'line', source: 'rb-route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': ['get', 'c'], 'line-width': 16, 'line-blur': 10, 'line-opacity': this.dark ? 0.55 : 0.25 } });
+    map.addLayer({ id: 'rb-route-case', type: 'line', source: 'rb-route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': this.dark ? '#0a0f1c' : '#ffffff', 'line-width': 9, 'line-opacity': 0.9 } });
+    map.addLayer({ id: 'rb-route-s', type: 'line', source: 'rb-route', filter: ['==', ['get', 'p'], 'S'], layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': ['get', 'c'], 'line-width': 5.5 } });
+    map.addLayer({ id: 'rb-route-u', type: 'line', source: 'rb-route', filter: ['==', ['get', 'p'], 'U'], layout: { 'line-join': 'round' }, paint: { 'line-color': ['get', 'c'], 'line-width': 6, 'line-dasharray': [2, 1.3] } });
+    map.addLayer({ id: 'rb-stops-dot', type: 'circle', source: 'rb-stops', paint: { 'circle-radius': 5.5, 'circle-color': '#ffffff', 'circle-stroke-color': this.dark ? '#4f6bff' : '#1d1d1b', 'circle-stroke-width': 2 } });
     if (map.getStyle().glyphs) {
       map.addLayer({
         id: 'rb-stops-label', type: 'symbol', source: 'rb-stops',
         layout: { 'text-field': ['get', 'name'], 'text-font': ['Noto Sans Bold'], 'text-size': 13, 'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-allow-overlap': false },
-        paint: { 'text-color': '#111', 'text-halo-color': '#fff', 'text-halo-width': 2 },
+        paint: { 'text-color': this.dark ? '#f1f5ff' : '#111', 'text-halo-color': this.dark ? '#0a0f1c' : '#fff', 'text-halo-width': 2 },
       });
     }
   }

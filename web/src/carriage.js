@@ -1,5 +1,6 @@
 import CH from './changes.json';
 import { ST } from './net.js';
+import { tr } from './i18n.js';
 
 // Crowd sourced platform positions (vbb-change-positions, ODbL 1.0).
 // Row: [station, fromLines, prevStation, fromPos, toLines, nextStation, toPos, samePlatform]
@@ -25,10 +26,10 @@ export function changeTip(a, b) {
     const agree = rows.every((r) => r[7] === best[7] && r[3] === best[3] && r[6] === best[6]);
     if (!agree) return null;
   }
-  if (best[7]) return { same: true, text: 'Same platform, just step across to the ' + b.line + '.' };
+  if (best[7]) return { same: true, text: tr('tipSame', { b: b.line }) };
   const f = where(best[3]), t = where(best[6]);
   return {
     same: false,
-    text: 'Ride in the ' + f + ' of the ' + a.line + ', closest to your change. Then wait at the ' + t + ' of the platform for the ' + b.line + '.',
+    text: tr('tipRide', { f: tr(f), t: tr(t), a: a.line, b: b.line }),
   };
 }
