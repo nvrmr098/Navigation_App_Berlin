@@ -208,3 +208,6 @@ button.li:active{background:var(--solid2)}
 .toast{position:fixed;left:50%;bottom:calc(var(--dock) + 52px);transform:translateX(-50%);background:rgba(10,12,22,.9);color:#fff;border-radius:20px;padding:11px 18px;z-index:99;font-size:14px;font-weight:550;max-width:calc(100% - 32px);text-align:center;animation:rise .3s var(--ease)}
 table.z{width:100%;border-collapse:collapse;margin:8px 0}
 table.z td,table.z th{border-bottom:1px solid var(--line);padding:9px 4px;text-align:left;font-size:14px}
+
+.steps li small.tip{display:flex;flex-wrap:nowrap;align-items:flex-start;gap:8px;margin:6px 0 2px;padding:8px 10px;border-radius:12px;background:color-mix(in srgb,var(--c,#6b7cff) 12%,transparent);color:var(--ink);font-size:13px;line-height:1.35}
+.steps li small.tip svg{flex:none;width:16px;height:16px;margin-top:1px;color:var(--c,#6b7cff)}

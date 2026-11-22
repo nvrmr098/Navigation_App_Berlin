@@ -1,3 +1,4 @@
+import { changeTip } from './carriage.js';
 import React from 'react';
 import { R, ST, NET } from './net.js';
 import { Badge, Badges, SearchBox, Ico } from './ui.jsx';
@@ -38,10 +39,12 @@ export function NavPage({ on, nav, fq, setFq, tq, setTq, store, onPickFrom, onPi
               <>
                 <ul className="steps">
                   {r.legs.map((lg, li) => {
+                    const tips = r.legs.map((l, i) => (i > 0 ? changeTip(r.legs[i - 1], l) : null));
                     const a = ST[lg.stations[0]], b = ST[lg.stations[lg.stations.length - 1]];
                     return (
                       <React.Fragment key={li}>
                         <li style={{ '--c': lg.c }}><span className="pin" /><b>{li === 0 ? 'Start at ' : 'Change at '}{a.name}</b>
+                          {li > 0 && tips[li] && <small className="tip"><Ico n="bulb" /><span>{tips[li].text}</span></small>}
                           <small><Badge line={lg.line} /> towards {lg.toward} &middot; {lg.stops} {lg.stops === 1 ? 'stop' : 'stops'} &middot; {Math.round(lg.rideMin)} min</small>
                         </li>
                         {li === r.legs.length - 1 && <li style={{ '--c': '#ef4455' }}><span className="pin" /><b>Arrive at {b.name}</b></li>}
@@ -154,6 +157,7 @@ export function ModalContent({ kind, store, onFav, onTrip }) {
     case 'about':
       return (<><h3>About Berlin Route</h3><p>Version 0.4 (preview). A simplified S-Bahn and U-Bahn map with route finding and live GPS navigation for newcomers to Berlin.</p>
         <p className="mute">{NET.credit}</p>
+        <p className="mute">Change tips (which part of the train and platform to use): vbb-change-positions, crowd sourced, ODbL 1.0. Tips are approximate and only shown where data exists. Station data: VBB open data, CC BY 3.0.</p>
         <p className="mute">3D city: map data from OpenStreetMap contributors (ODbL), tiles by OpenFreeMap and OpenMapTiles, rendered with MapLibre GL.</p>
         <p className="mute">Line and station names and colors are facts from open data. The network map is an original drawing and not the official BVG or S-Bahn Berlin map. This app is not affiliated with BVG, S-Bahn Berlin or VBB.</p>
         <p className="mute">Travel times are estimates. Lines S4 and S45 are not included yet. Built with React, Vite, MapLibre GL and three.js.</p></>);

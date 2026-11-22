@@ -77,3 +77,14 @@ The workflow in `.github/workflows/build-apk.yml` builds a debug APK on GitHub.
 - **Permissions**: location (only while the app is open) and vibration. Your position never leaves the device.
 - **Credits**: OpenFreeMap, OpenMapTiles, OpenStreetMap contributors (ODbL), VBB open data (CC BY 3.0).
 - Test GPS on a real device. Browser previews need https for location (GitHub Pages is https).
+
+## Change tips (carriage and platform position)
+
+For many transfers the route steps show where to ride and where to wait on the platform. The data comes from the crowd sourced dataset vbb-change-positions (ODbL 1.0, https://github.com/juliuste/vbb-change-positions). It covers about 83 percent of the real transfer pairs in this network. Where no data exists, no tip is shown.
+
+Regenerate after the dataset changes:
+
+    npm i vbb-change-positions   (in a scratch folder)
+    python3 -I scripts/build_changes.py <scratch>/node_modules/vbb-change-positions/data.ndjson web/src/data.json web/src/changes.json
+
+Station exits are not included yet (VBB entrance coordinates are a possible next step).
