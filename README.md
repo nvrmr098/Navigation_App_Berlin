@@ -109,6 +109,13 @@ Regenerate after the dataset changes:
 
 Station exits are not included yet (VBB entrance coordinates are a possible next step).
 
+## v0.6.1
+- Walking navigation shows a large arrow with text (straight, bear left or right, turn left or right, turn around), from GPS heading or the compass.
+- Voice assistant button on the map; native speech recognition through the Android app (the browser cannot do it inside a WebView).
+- Nearby tab: three nearest BVG stops, then S-Bahn, U-Bahn, tram and bus sections with three stops each.
+- Tram and bus stops on the map show live departures. Popular places chips on map and Navigate. Alternatives inline on Navigate. Night and weekend info reachable from Navigate and Nearby, with street or place search.
+- Map reverted to the original S+U layout.
+
 ## v0.6
 
 - Street navigation: address and place search (Photon), walking route and live position on a street map (OpenStreetMap, OSRM foot routing, OpenFreeMap tiles). Walk to the first station, then ride, then walk to the destination.
@@ -116,7 +123,7 @@ Station exits are not included yet (VBB entrance coordinates are a possible next
 - Separate tram, bus and RE maps built from VBB open data (CC BY 3.0) with real stop connectivity (`scripts/build_modes.py`). Original drawings, marked unofficial.
 - Get-off alert (vibration, beep, banner), ticket helper (zone estimate), station help (live platforms, lifts and toilets from OpenStreetMap), step-free alternatives and disruption alternatives (VBB journeys), night and weekend info, voice and typed assistant (rule based, no cloud AI), share trip link, offline cache (saved boards, web service worker).
 - Languages: English, Deutsch, Espanol, Italiano, Francais, Hindi, Punjabi, Chinese, Korean.
-- S+U map has more space (`scripts/spread_layout.py`, connections unchanged).
+- The S+U map keeps the original layout (the optional spread script `scripts/spread_layout.py` is no longer applied).
 
 Credits: VBB open data (CC BY 3.0), OpenStreetMap contributors (ODbL), OpenFreeMap, OpenMapTiles, Photon by komoot, routing.openstreetmap.de, vbb-change-positions (ODbL). The app is not affiliated with BVG, S-Bahn Berlin or VBB.
 

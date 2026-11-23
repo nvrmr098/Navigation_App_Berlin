@@ -382,3 +382,16 @@ body.dark .dl.warn{color:var(--warn)}
 .sharebar{position:absolute;z-index:28;left:12px;top:calc(env(safe-area-inset-top) + 118px);display:flex;align-items:center;gap:8px;padding:6px 8px 6px 12px;border-radius:18px;font-size:13px;font-weight:650}
 .sharebar .rdot{width:9px;height:9px;border-radius:50%;background:#ef4455;animation:blink 1.2s infinite}.sharebar button{height:28px;padding:0 12px;border-radius:14px;background:var(--solid2);font-weight:700;font-size:12.5px}
 @keyframes blink{50%{opacity:.25}}
+.fab.mic{background:linear-gradient(135deg,#5b6bff,#25b8ff)!important;color:#fff}.fab.mic svg{stroke:#fff}
+.mm-live{margin:8px 0}.mm-live .brows{max-height:150px;overflow:auto}
+.nsec{display:flex;align-items:center;gap:8px;margin:18px 4px 8px;font-size:15px}.nsec svg{width:18px;height:18px;color:var(--accent)}
+.mlines{display:inline-flex;gap:4px;flex-wrap:wrap;align-items:center}.mlines small{color:var(--mute);font-weight:650}
+.nightcard{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:12px 14px;border-radius:20px;margin:10px 0 0}.nightcard span{flex:1;display:flex;flex-direction:column}.nightcard small{color:var(--mute)}.nightcard>svg:first-child{width:22px;height:22px;color:#6b7bff}
+.tools{display:flex;gap:8px;overflow-x:auto;padding:2px 0 10px;scrollbar-width:none}.tools::-webkit-scrollbar{display:none}.chip.tool{flex:none;height:36px;font-size:13px;background:var(--surface)}
+.pinrow.pop{overflow-x:auto;flex-wrap:nowrap;scrollbar-width:none}.pinrow.pop::-webkit-scrollbar{display:none}
+.fld.pk{display:flex;align-items:center;gap:8px;margin:6px 0 10px;padding:0 12px;height:46px;border-radius:16px;border:1px solid var(--line);background:var(--surface);position:relative}.fld.pk input{flex:1;height:44px;background:transparent;border:0;outline:0;font-size:15px;color:inherit}
+.fld.pk .dd{z-index:80}
+.wk-ins{position:absolute;z-index:6;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top) + 150px);display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 22px 12px;border-radius:26px;color:#fff;box-shadow:var(--shadow);min-width:170px;animation:rise .3s var(--ease)}
+.wk-ins .arr{display:flex;width:84px;height:84px;align-items:center;justify-content:center;transition:transform .35s var(--ease)}.wk-ins .arr svg{width:84px;height:84px;stroke-width:2.6}
+.wk-ins b{font-size:19px;font-weight:750;text-align:center}
+.wk-ins.ok{background:#18b26b}.wk-ins.turn{background:#f5a524;color:#3b2500}.wk-ins.bad{background:#ef4455}

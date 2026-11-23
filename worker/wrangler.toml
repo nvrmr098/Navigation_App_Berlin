@@ -6,4 +6,4 @@ compatibility_date = "2024-11-01"
 # then paste the id it prints below.
 [[kv_namespaces]]
 binding = "TRIPS"
-id = "09de3eb6fbd24ea6b132fa61550c4640"
+id = "PASTE_KV_ID_HERE"

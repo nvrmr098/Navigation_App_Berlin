@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { tr } from './i18n.js';
 import { Ico } from './ui.jsx';
+import { useBoard, BoardRows, BoardStatus } from './live-ui.jsx';
 
 /* Separate maps for tram, bus and regional trains (RE/RB). Drawn from VBB open data (CC BY 3.0),
  * positions are real (latitude and longitude). The drawing itself is original. */
@@ -14,6 +15,18 @@ const proj = (lat, lng) => [(lng - LON0) * KX, -(lat - LAT0) * KY];
 const rankOf = (n) => (/^M/.test(n) ? 0 : /^X/.test(n) ? 1 : /^N/.test(n) ? 3 : 2);
 const nice = (n) => n.replace(/,\s*(Bahnhof|Bf)$/, '').replace(/,\s*(Hbf|Hauptbahnhof)$/, ' Hbf');
 const natural = (a, b) => rankOf(a) - rankOf(b) || a.localeCompare(b, 'en', { numeric: true });
+
+/* next departures at the tapped stop (VBB live data, all modes) */
+function StopLive({ name, at }) {
+  const o = useMemo(() => ({ results: 8, duration: 60, at, all: true }), [name, at.lat, at.lng]);
+  const [st, reload] = useBoard(name, 'departures', true, o);
+  return (
+    <div className="mm-live">
+      <BoardStatus st={st} reload={reload} />
+      <BoardRows items={st.items} kind="departures" max={4} />
+    </div>
+  );
+}
 
 export default function ModeMap({ kind, dark, lang, onBoard }) {
   const cv = useRef(null), box = useRef(null);
@@ -138,7 +151,7 @@ export default function ModeMap({ kind, dark, lang, onBoard }) {
 
   const chips = model ? model.lineNames.filter((n) => !q || n.toLowerCase().startsWith(q.trim().toLowerCase())).slice(0, 60) : [];
   const zoom = (f) => box.current && box.current._zoom(f, box.current.clientWidth / 2, box.current.clientHeight / 2);
-  const here = pick != null && model ? { name: data.s[pick][0], lines: model.stopLines[pick] } : null;
+  const here = pick != null && model ? { name: data.s[pick][0], lines: model.stopLines[pick], at: { lat: data.s[pick][1], lng: data.s[pick][2] } } : null;
   return (
     <div className="mmap" ref={box}>
       <canvas ref={cv} />
@@ -159,7 +172,8 @@ export default function ModeMap({ kind, dark, lang, onBoard }) {
           <button className="x" aria-label={tr('close')} onClick={() => setPick(null)}><Ico n="close" /></button>
           <h3>{here.name}</h3>
           <div className="mm-lines">{here.lines.slice(0, 14).map((n) => <button key={n} className="lchip on" style={{ '--lc': data.l[n].c }} onClick={() => { setSel(n); setPick(null); }}><i />{n}</button>)}</div>
-          {onBoard && <button className="btn alt sm wide" onClick={() => onBoard(here.name)}><Ico n="train" />{tr('liveDepArr')}</button>}
+          <StopLive key={here.name + here.at.lat} name={here.name} at={here.at} />
+          {onBoard && <button className="btn alt sm wide" onClick={() => onBoard(here.name, here.at, true)}><Ico n="train" />{tr('liveDepArr')}</button>}
         </div>
       )}
       <div className="mm-note">{tr('modeCredit')}</div>

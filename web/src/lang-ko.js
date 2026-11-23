@@ -1,5 +1,7 @@
 /* 한국어 */
 export default {
+  privP3: '실시간 공유는 선택 사항이며 기본적으로 꺼져 있습니다. 시작하면 위치가 몇 초마다 작은 서버(Cloudflare)로 전송되며, 링크가 있는 누구나 중지하거나 6시간이 지날 때까지 볼 수 있습니다.',
+  asErrPerm: '마이크가 차단되었습니다. 앱 또는 사이트의 마이크 접근을 허용해 주세요.', asErrNet: '음성 서비스에 연결할 수 없습니다. 인터넷을 확인하세요.', asErrNone: '소리가 들리지 않았습니다. 다시 시도하세요.', asKbHint: '팁: 키보드의 마이크 키를 눌러 음성으로 입력하세요.', nearestAll: '가장 가까운 정류장', popularPlaces: '인기 장소', pickPlace: '역, 거리 또는 장소 검색', ins_straight: '직진', ins_slight_left: '약간 왼쪽', ins_slight_right: '약간 오른쪽', ins_turn_left: '왼쪽으로 회전', ins_turn_right: '오른쪽으로 회전', ins_back: '뒤로 돌기', ins_wait: '방향을 알 수 있게 몇 걸음 걸어 주세요',
   shareLiveOn: '실시간 위치 공유 중', shareLiveStop: '중지', shareLiveOff: '실시간 공유를 중지했습니다', shareLiveFail: '실시간 공유를 시작할 수 없습니다', shareLiveText: '내 여정을 실시간으로 보세요:',
   about: '정보 및 데이터 출처', aboutP1: '베를린에 처음 온 사람을 위한 간단한 S-Bahn, U-Bahn 지도로, 경로 검색, 실시간 출발 정보, GPS 길 안내를 제공합니다.', aboutTitle: 'Bearline 소개',
   accuracy: '정확도', aiAssist: '도우미', aiSub: '여행에 대해 물어보세요', all: '전체', alreadyThere: '이미 목적지에 있습니다', appearance: '화면 모드', apply: '적용', area: '구역',

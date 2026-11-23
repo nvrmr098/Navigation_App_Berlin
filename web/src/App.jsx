@@ -8,6 +8,7 @@ const WalkView = React.lazy(() => import('./walkview.jsx'));
 import { meters } from './walk.js';
 import { beep } from './geo.js';
 import { SHARE_API } from './config.js';
+import { POPULAR } from './popular.js';
 import { NavPage, MorePage, NearbyPage, ModalContent, StartSheet } from './pages.jsx';
 import { setLang, tr, cnt, fmtTime } from './i18n.js';
 
@@ -29,6 +30,7 @@ export default function App() {
   const [mult, setMult] = useState(1);
   const [net, setNet] = useState('rail');
   const [walk, setWalk] = useState(null);
+  const [boardOpts, setBoardOpts] = useState(null);
   const [share, setShare] = useState(null); // { id, key, url } while live sharing is on
   const shareRef = useRef(null);
   useEffect(() => {
@@ -117,6 +119,10 @@ export default function App() {
 
   // ---------- helpers ----------
   const filterFor = (s) => { if (!s.lines.some((l) => filter === 'both' || (filter === 'S' ? /^S/.test(l) : /^U/.test(l)))) setFilter('both'); };
+  const showPlace = (pl) => {
+    const n = nearestStation(pl.lat, pl.lng); setMq(pl.name); filterFor(n.st); selectStation(n.st.i, true);
+    say(pl.name + ': ' + tr('nearest') + ' ' + n.st.name + ' (' + fmtDist(n.km) + ')');
+  };
   const selectStation = (i, center) => { setSelected(i); if (center && eng.current) eng.current.centerOn(ST[i], 3.2, eng.current.H * 0.12); };
   const remember = (r) => {
     const a = ST[r.from].name, b = ST[r.to].name;
@@ -373,7 +379,7 @@ export default function App() {
     if (!r && !f) { say(tr('tkNoRoute')); return; }
     if (navigator.share) navigator.share({ text: t }).catch(() => {}); else if (navigator.clipboard) navigator.clipboard.writeText(t).then(() => say(tr('routeCopied')), () => say(tr('shareNA'))); else say(tr('shareNA'));
   };
-  const openBoard = (name) => { setBoardName(name); setStartOffer(null); setModal('board'); };
+  const openBoard = (name, at, all) => { setBoardName(name); setBoardOpts(at ? { at, all: !!all } : null); setStartOffer(null); setModal('board'); };
   const setDest = (name) => { const s = R.byName(name); if (s) { setTo(s); setPage('pNav'); } };
   const toggleFavSel = () => { const nme = sel.name, has = store.fav.indexOf(nme) >= 0; setStore((s) => ({ ...s, fav: has ? s.fav.filter((x) => x !== nme) : [nme, ...s.fav] })); say(has ? tr('favRemoved') : tr('favAdded')); };
   const setPlace = (k) => { const nme = sel.name; setStore((s) => ({ ...s, [k]: s[k] === nme ? '' : nme })); say(store[k] === nme ? tr('removed') : tr(k) + ': ' + nme); };
@@ -401,8 +407,8 @@ export default function App() {
           {net === 'rail' && (
             <div className="sbox">
               <Ico n="search" className="ic" />
-              <SearchBox value={mq} onChange={setMq} store={store} ddTop={58} placeholder={tr('searchStation')}
-                onPick={(s) => { setMq(s.name); filterFor(s); selectStation(s.i, true); }} />
+              <SearchBox value={mq} onChange={setMq} store={store} ddTop={58} placeholder={tr('searchStation')} places
+                onPick={(s) => { if (s.place) { showPlace(s); return; } setMq(s.name); filterFor(s); selectStation(s.i, true); }} />
               {mq && <button className="clr" aria-label={tr('clear')} onClick={() => setMq('')}><Ico n="close" /></button>}
             </div>
           )}
@@ -417,6 +423,11 @@ export default function App() {
               <button className={filter === 'both' ? 'on' : ''} onClick={() => setFilter('both')}>S + U</button>
               <button className={filter === 'S' ? 'on' : ''} onClick={() => setFilter('S')}><span className="bdg S" style={{ background: '#3d9a4a' }}>S</span><span className="fl">S-Bahn</span></button>
               <button className={filter === 'U' ? 'on' : ''} onClick={() => setFilter('U')}><span className="bdg U" style={{ background: '#1670b8' }}>U</span><span className="fl">U-Bahn</span></button>
+            </div>
+          )}
+          {net === 'rail' && !navActive && (
+            <div className="pinrow pop">
+              {POPULAR.map((pl) => <button key={pl.name} className="chip glass" onClick={() => showPlace(pl)}><Ico n="pinmark" className="s" />{pl.name}</button>)}
             </div>
           )}
           {net === 'rail' && mineChips.length > 0 && (
@@ -464,6 +475,7 @@ export default function App() {
 
         <div id="fabs" hidden={net !== 'rail'} style={sel ? { bottom: 'calc(var(--dock) + 296px)' } : navActive ? { bottom: 'calc(var(--dock) + 100px)' } : undefined}>
           {mode === 'live' && <button className="fab glass lg" aria-label="2D / 3D" onClick={() => toggle3d()}><Ico n={view === '2d' ? 'cube' : 'flat'} />{view === '2d' ? '3D' : '2D'}</button>}
+          {!navActive && <button className="fab glass mic" aria-label={tr('asTitle')} onClick={() => setModal('assistmic')}><Ico n="mic" /></button>}
           {!navActive && <button className={'fab glass' + (locateOn ? ' on' : '')} aria-label={tr('myLocation')} onClick={toggleLocate}><Ico n="locate" /></button>}
           {view === '2d' && <button className="fab glass" aria-label="+" onClick={() => { live.current.follow = false; eng.current.zoomBy(1.5); }}>+</button>}
           {view === '2d' && <button className="fab glass" aria-label="-" onClick={() => { live.current.follow = false; eng.current.zoomBy(1 / 1.5); }}>&minus;</button>}
@@ -510,12 +522,13 @@ export default function App() {
         setFq={(v) => { setFq(v); if (nav.from) clearRoutes('from'); }} setTq={(v) => { setTq(v); if (nav.to) clearRoutes('to'); }}
         onPickFrom={(s) => { if (s.place) { pickPlace('from', s); return; } setFrom(s); if (!navRef.current.to) setTimeout(() => document.querySelectorAll('#pNav .fld input')[1]?.focus(), 60); }} onPickTo={(s) => (s.place ? pickPlace('to', s) : setTo(s))}
         onSwap={swap} onSelect={(i) => setNav((n) => ({ ...n, sel: i }))} onShow={showOnMap} onStart={(r) => setStartOffer(r)} onShare={shareRoute} onModal={setModal}
-        onTime={() => setModal('time')} onBoard={openBoard} onPlaces={() => setModal('places')} onSetDest={setDest}
+        onTime={() => setModal('time')} onBoard={openBoard} onPlaces={() => setModal('places')} onSetDest={setDest} onPickPlace={(pl) => pickPlace('to', pl)}
         onChipStation={(name) => { const s = R.byName(name); if (!nav.from) setFrom(s); else setTo(s); }}
         onChipTrip={(r) => { const a = R.byName(r[0]), b = R.byName(r[1]); setNav({ from: a, to: b, routes: R.routes(a.i, b.i), sel: 0 }); setFq(a.name); setTq(b.name); }}
         onLocate={useMyLocation} />
       <NearbyPage on={page === 'pNear'} store={store} setStore={setStore} say={say} onBoard={openBoard}
-        onGo={(s) => { setTo(s); setPage('pNav'); }} onOnMap={(i) => { setPage('pMap'); selectStation(i, true); }} />
+        onGo={(s) => { setTo(s); setPage('pNav'); }} onOnMap={(i) => { setPage('pMap'); selectStation(i, true); }}
+        onGoPlace={(pl) => { pickPlace('to', pl); setPage('pNav'); }} onModeMap={(k) => { setNet(k); setPage('pMap'); }} onModal={setModal} />
       <MorePage on={page === 'pMore'} store={store} setStore={setStore} open={openModal} toast={say} gpsStatus={gpsStatus} />
 
       <nav id="dock" className="glass">
@@ -531,7 +544,7 @@ export default function App() {
           <div className="grab" />
           {startOffer
             ? <StartSheet route={startOffer} onGps={() => beginGps(startOffer)} onDemo={() => startNav(startOffer, 'demo')} />
-            : <ModalContent kind={modal} store={store} setStore={setStore} board={boardName} when={when} say={say} nav={nav} stNames={[nav.from && nav.from.name, nav.to && nav.to.name, nearName].filter((x, i, a) => x && a.indexOf(x) === i)} onAssist={assistGo}
+            : <ModalContent kind={modal} store={store} setStore={setStore} board={boardName} boardOpts={boardOpts} when={when} say={say} nav={nav} stNames={[nav.from && nav.from.name, nav.to && nav.to.name, nearName].filter((x, i, a) => x && a.indexOf(x) === i)} onAssist={assistGo}
               onFav={(n) => { closeModal(); setPage('pMap'); const s = R.byName(n); if (s) { filterFor(s); selectStation(s.i, true); } }}
               onLang={(id) => { setStore((o) => ({ ...o, lang: id })); closeModal(); }}
               onApplyTime={(w) => { setWhen(w); closeModal(); }}

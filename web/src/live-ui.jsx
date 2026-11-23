@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { board, disruptions } from './live.js';
 import { tr, fmtTime, getLang } from './i18n.js';
 import { LineTag, Ico } from './ui.jsx';
@@ -6,7 +6,7 @@ import { LineTag, Ico } from './ui.jsx';
 /* polls a live board; keeps the last good data when a refresh fails */
 export function useBoard(name, kind, active, opts) {
   const [st, setSt] = useState({ state: 'loading', items: [], at: 0 });
-  const key = name + '|' + kind + '|' + (opts && opts.when ? Math.floor(opts.when / 60000) : '') + '|' + getLang();
+  const key = name + '|' + (opts && opts.at ? opts.at.lat.toFixed(3) + opts.at.lng.toFixed(3) : '') + (opts && opts.all ? 'a' : '') + '|' + kind + '|' + (opts && opts.when ? Math.floor(opts.when / 60000) : '') + '|' + getLang();
   const tick = useRef(0);
   const load = useCallback(async () => {
     if (!name) return;
@@ -64,9 +64,10 @@ export function BoardStatus({ st, reload }) {
 }
 
 /* full board with Departures / Arrivals tabs, shown in the modal */
-export function StationBoard({ name }) {
+export function StationBoard({ name, at, all }) {
   const [kind, setKind] = useState('departures');
-  const [st, reload] = useBoard(name, kind, true, { results: 14, duration: 90 });
+  const bo = useMemo(() => ({ results: 14, duration: 90, at, all }), [name, at && at.lat, at && at.lng, all]);
+  const [st, reload] = useBoard(name, kind, true, bo);
   return (
     <>
       <h3>{name}</h3>

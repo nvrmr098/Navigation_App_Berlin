@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { changeTip } from './carriage.js';
 import { meters, walkMin } from './walk.js';
+import { loadStops } from './modestops.js';
 import { TicketHelper, StationHelp, Alternatives, NightInfo, Assistant } from './extras.jsx';
+import { POPULAR } from './popular.js';
 import { R, ST, NET } from './net.js';
 import { Badge, Badges, SearchBox, Ico, Logo, LineTag } from './ui.jsx';
 import { tr, cnt, fmtTime, fmtDay, LANGS } from './i18n.js';
@@ -91,7 +93,7 @@ function RouteCard({ fromPlace, toPlace, onModal, r, i, sel, when, onSelect, onS
   );
 }
 
-export function NavPage({ onModal, on, nav, fq, setFq, tq, setTq, store, when, onTime, onPickFrom, onPickTo, onSwap, onSelect, onShow, onStart, onShare, onChipStation, onChipTrip, onLocate, onBoard, onPlaces, onSetDest }) {
+export function NavPage({ onModal, on, nav, fq, setFq, tq, setTq, store, when, onTime, onPickFrom, onPickTo, onSwap, onSelect, onShow, onStart, onShare, onChipStation, onChipTrip, onLocate, onBoard, onPlaces, onSetDest, onPickPlace }) {
   const ready = nav.from && nav.to;
   const boardName = nav.from ? nav.from.name : nav.to ? nav.to.name : '';
   const mine = [];
@@ -117,6 +119,12 @@ export function NavPage({ onModal, on, nav, fq, setFq, tq, setTq, store, when, o
           <button key={k} className="chip" onClick={() => (store[k] ? onSetDest(store[k]) : onPlaces(k))}><Ico n={k} className="s" />{store[k] ? tr(k) : tr('set' + k[0].toUpperCase() + k.slice(1))}</button>
         ))}
       </div>
+      <div className="tools">
+        <button className="chip tool" onClick={() => onModal('night')}><Ico n="moon" className="s" />{tr('nightTitle')}</button>
+        <button className="chip tool" onClick={() => onModal('tkt')}><Ico n="ticket" className="s" />{tr('tkTitle')}</button>
+        <button className="chip tool" onClick={() => onModal('sthelp')}><Ico n="building" className="s" />{tr('shTitle')}</button>
+        <button className="chip tool" onClick={() => onModal('assistmic')}><Ico n="mic" className="s" />{tr('asTitle')}</button>
+      </div>
       {store.fav.length > 0 && (
         <div className="pins">{store.fav.map((n) => <button key={n} className="chip" onClick={() => onSetDest(n)}><Ico n="star" className="s" />{n}</button>)}</div>
       )}
@@ -127,6 +135,7 @@ export function NavPage({ onModal, on, nav, fq, setFq, tq, setTq, store, when, o
           onSelect={() => onSelect(i)} onShow={() => onShow(r)} onStart={() => onStart(r)} onShare={() => onShare(r)} />
       ))}
       {ready && nav.routes.length > 0 && <p className="note">{tr('estNote')}</p>}
+      {ready && on && <Alternatives key={nav.from.name + '>' + nav.to.name} nav={nav} store={store} inline />}
 
       {boardName && <MiniBoard name={boardName} onMore={() => onBoard(boardName)} />}
 
@@ -135,6 +144,8 @@ export function NavPage({ onModal, on, nav, fq, setFq, tq, setTq, store, when, o
           {store.rec.length > 0 && <><div className="sec">{tr('recentTrips')}</div><div className="rec">{store.rec.map((r, i) => <button key={i} className="chip" onClick={() => onChipTrip(r)}>{r[0]} &rarr; {r[1]}</button>)}</div></>}
           <div className="sec">{tr('popularStations')}</div>
           <div className="rec">{R.search('', 8).map((s) => <button key={s.i} className="chip" onClick={() => onChipStation(s.name)}>{s.name}</button>)}</div>
+          <div className="sec">{tr('popularPlaces')}</div>
+          <div className="rec">{POPULAR.map((pl) => <button key={pl.name} className="chip" onClick={() => onPickPlace(pl)}><Ico n="pinmark" className="s" />{pl.name}</button>)}</div>
           <p className="note">{tr('navHint')}</p>
         </div>
       )}
@@ -143,24 +154,52 @@ export function NavPage({ onModal, on, nav, fq, setFq, tq, setTq, store, when, o
 }
 
 /* ---------- Nearby tab ---------- */
-export function NearbyPage({ on, store, setStore, onBoard, onGo, onOnMap, say }) {
+export function NearbyPage({ on, store, setStore, onBoard, onGo, onOnMap, onGoPlace, onModeMap, onModal, say }) {
   const [pos, setPos] = useState(null);
   const [status, setStatus] = useState('idle'); // idle | asking | ok | denied | error
+  const [modes, setModes] = useState({ tram: [], bus: [] });
   const find = async () => {
     setStatus('asking');
     try { const p = await getPositionOnce(); setPos(p); setStatus('ok'); } catch (e) { setStatus(e && e.code === 1 ? 'denied' : 'error'); }
   };
   useEffect(() => { if (on && status === 'idle') find(); /* eslint-disable-next-line */ }, [on]);
-  const list = useMemo(() => {
-    if (!pos) return [];
-    return ST.map((s) => ({ s, km: distKm(pos.lat, pos.lng, s.lat, s.lng) })).sort((a, b) => a.km - b.km).slice(0, 12);
-  }, [pos]);
-  const far = list.length && list[0].km > 8;
+  useEffect(() => { if (on) { Promise.all([loadStops('tram'), loadStops('bus')]).then(([tram, bus]) => setModes({ tram, bus })).catch(() => {}); } }, [on]);
+  const sec = useMemo(() => {
+    if (!pos) return null;
+    const near = (arr, n) => arr.map((s) => ({ s, km: distKm(pos.lat, pos.lng, s.lat, s.lng) })).sort((a, b) => a.km - b.km).slice(0, n);
+    const rail = ST.map((s) => ({ ...s, kind: 'rail' }));
+    const sb = ST.filter((s) => s.lines.some((l) => l[0] === 'S')), ub = ST.filter((s) => s.lines.some((l) => l[0] === 'U'));
+    const all = near([...rail, ...modes.tram, ...modes.bus], 3);
+    return { all, sb: near(sb, 3), ub: near(ub, 3), tram: near(modes.tram, 3), bus: near(modes.bus, 3) };
+  }, [pos, modes]);
+  const far = sec && sec.all.length && sec.all[0].km > 8;
   const toggleFav = (name) => setStore((o) => {
     const has = o.fav.indexOf(name) >= 0;
     say(has ? tr('favRemoved') : tr('favAdded'));
     return { ...o, fav: has ? o.fav.filter((x) => x !== name) : [name, ...o.fav] };
   });
+  const Card = ({ s, km }) => {
+    const rail = !s.kind || s.kind === 'rail', fav = store.fav.indexOf(s.name) >= 0;
+    return (
+      <div className="ncard glass">
+        <div className="nt1"><b>{s.name}</b>
+          {rail && <button className={'favb' + (fav ? ' on' : '')} aria-label={fav ? tr('unpin') : tr('pin')} onClick={() => toggleFav(s.name)}><Ico n="star" /></button>}</div>
+        <div className="nt2">{rail ? <Badges s={s} max={6} /> : <span className="mlines">{s.lines.slice(0, 7).map((l) => <LineTag key={l} line={l} product={s.kind} />)}{s.lines.length > 7 ? <small>+{s.lines.length - 7}</small> : null}</span>}
+          <span className="dist"><Ico n="walk" />{fmtDist(km)} &middot; {Math.max(1, Math.round(km * 1000 / 80))} {tr('min')}</span></div>
+        <div className="acts">
+          <button className="btn alt sm" onClick={() => (rail ? onBoard(s.name) : onBoard(s.name, { lat: s.lat, lng: s.lng }, true))}><Ico n="train" />{tr('departures')}</button>
+          <button className="btn alt sm" onClick={() => (rail ? onOnMap(s.i) : onModeMap(s.kind))}><Ico n="map" />{tr('map')}</button>
+          <button className="btn sm" onClick={() => (rail ? onGo(s) : onGoPlace({ name: s.name, lat: s.lat, lng: s.lng }))}><Ico n="nav" />{tr('goHere')}</button>
+        </div>
+      </div>
+    );
+  };
+  const Sec = ({ ico, title, list }) => (
+    <>
+      <div className="nsec"><Ico n={ico} /><b>{title}</b></div>
+      {list.length ? list.map(({ s, km }) => <Card key={s.kind + s.name + (s.i == null ? s.lat : s.i)} s={s} km={km} />) : <p className="mute" style={{ margin: '0 4px 10px' }}>{tr('shNone')}</p>}
+    </>
+  );
   return (
     <section className={'page scroll' + (on ? ' on' : '')} id="pNear">
       <h1><small>{tr('nearSub')}</small>{tr('nearby')}</h1>
@@ -170,21 +209,16 @@ export function NearbyPage({ on, store, setStore, onBoard, onGo, onOnMap, say })
           <small>{status === 'ok' && pos ? tr('accuracy') + ' ' + Math.round(pos.acc || 0) + ' m' : status === 'denied' ? tr('locDeniedHelp') : status === 'error' ? tr('gpsFail') : tr('nearHint')}</small></div>
         <button className="btn sm" onClick={find}><Ico n="refresh" />{tr('refresh')}</button>
       </div>
-      {list.map(({ s, km }) => {
-        const fav = store.fav.indexOf(s.name) >= 0;
-        return (
-          <div className="ncard glass" key={s.i}>
-            <div className="nt1"><b>{s.name}</b>
-              <button className={'favb' + (fav ? ' on' : '')} aria-label={fav ? tr('unpin') : tr('pin')} onClick={() => toggleFav(s.name)}><Ico n="star" /></button></div>
-            <div className="nt2"><Badges s={s} max={6} /><span className="dist"><Ico n="walk" />{fmtDist(km)} &middot; {Math.max(1, Math.round(km * 1000 / 80))} {tr('min')}</span></div>
-            <div className="acts">
-              <button className="btn alt sm" onClick={() => onBoard(s.name)}><Ico n="train" />{tr('departures')}</button>
-              <button className="btn alt sm" onClick={() => onOnMap(s.i)}><Ico n="map" />{tr('map')}</button>
-              <button className="btn sm" onClick={() => onGo(s)}><Ico n="nav" />{tr('goHere')}</button>
-            </div>
-          </div>
-        );
-      })}
+      <button className="nightcard glass" onClick={() => onModal('night')}><Ico n="moon" /><span><b>{tr('nightTitle')}</b><small>{tr('nightSub')}</small></span><Ico n="chevron" /></button>
+      {sec && (
+        <>
+          <Sec ico="radar" title={tr('nearestAll')} list={sec.all} />
+          <Sec ico="train" title="S-Bahn" list={sec.sb} />
+          <Sec ico="train" title="U-Bahn" list={sec.ub} />
+          <Sec ico="train" title={tr('netTram')} list={sec.tram} />
+          <Sec ico="train" title={tr('netBus')} list={sec.bus} />
+        </>
+      )}
       {status === 'ok' && <p className="note">{tr('pinNote')}</p>}
     </section>
   );
@@ -370,22 +404,24 @@ function PlacesModal({ store, setStore, onPick, say }) {
   );
 }
 
-export function ModalContent({ kind, store, setStore, board, onFav, onTrip, onLang, onApplyTime, when, say, nav, stNames, onAssist }) {
+export function ModalContent({ kind, store, setStore, board, boardOpts, onFav, onTrip, onLang, onApplyTime, when, say, nav, stNames, onAssist }) {
   switch (kind) {
     case 'tkt':
       return <TicketHelper nav={nav} />;
     case 'sthelp':
-      return <StationHelp names={stNames && stNames.length ? stNames : ['Alexanderplatz']} />;
+      return <StationHelp store={store} names={stNames && stNames.length ? stNames : ['Alexanderplatz']} />;
     case 'alt':
       return <Alternatives nav={nav} store={store} />;
     case 'night':
-      return <NightInfo names={stNames && stNames.length ? stNames : ['Alexanderplatz']} />;
+      return <NightInfo store={store} names={stNames && stNames.length ? stNames : ['Alexanderplatz']} />;
     case 'assist':
       return <Assistant onGo={onAssist} say={say} />;
+    case 'assistmic':
+      return <Assistant onGo={onAssist} say={say} auto />;
     case 'places':
       return <PlacesModal store={store} setStore={setStore} onPick={onFav} say={say} />;
     case 'board':
-      return <StationBoard name={board} />;
+      return <StationBoard name={board} at={boardOpts && boardOpts.at} all={boardOpts && boardOpts.all} />;
     case 'time':
       return <TimeSheet when={when} onApply={onApplyTime} />;
     case 'lang':
@@ -402,7 +438,7 @@ export function ModalContent({ kind, store, setStore, board, onFav, onTrip, onLa
     case 'fb':
       return (<><h3>{tr('feedback')}</h3><p>{tr('fbText')}</p></>);
     case 'priv':
-      return (<><h3>{tr('privacy')}</h3><p>{tr('privP1')}</p><p className="mute">{tr('privP2')}</p></>);
+      return (<><h3>{tr('privacy')}</h3><p>{tr('privP1')}</p><p>{tr('privP3')}</p><p className="mute">{tr('privP2')}</p></>);
     case 'about':
       return (<><h3>{tr('aboutTitle')}</h3><p>{tr('aboutP1')}</p>
         <p className="mute">{NET.credit}</p>

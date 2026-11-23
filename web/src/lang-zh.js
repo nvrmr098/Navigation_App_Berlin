@@ -1,5 +1,7 @@
 /* 简体中文 */
 export default {
+  privP3: '实时分享为可选功能，默认关闭。开启后，您的位置会每隔几秒发送到一个小型服务器（Cloudflare），任何拥有链接的人都能看到，直到您停止或 6 小时后。',
+  asErrPerm: '麦克风被阻止。请允许应用或网站使用麦克风。', asErrNet: '无法连接语音服务，请检查网络。', asErrNone: '没有听到声音，请再试一次。', asKbHint: '提示：点击键盘上的麦克风键即可语音输入。', nearestAll: '最近的站点', popularPlaces: '热门地点', pickPlace: '搜索车站、街道或地点', ins_straight: '直行', ins_slight_left: '稍向左', ins_slight_right: '稍向右', ins_turn_left: '向左转', ins_turn_right: '向右转', ins_back: '掉头', ins_wait: '请走几步以确定方向',
   shareLiveOn: '正在共享实时位置', shareLiveStop: '停止', shareLiveOff: '已停止实时共享', shareLiveFail: '无法开始实时共享', shareLiveText: '实时关注我的行程：',
   about: '关于与数据来源', aboutP1: '为初到柏林的人准备的简化版 S-Bahn 与 U-Bahn 地图，含路线查询、实时发车和 GPS 导航。', aboutTitle: '关于 Bearline',
   accuracy: '精度', aiAssist: '助手', aiSub: '询问行程相关问题', all: '全部', alreadyThere: '你已经在目的地了', appearance: '外观', apply: '应用', area: '区域',

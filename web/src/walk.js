@@ -67,3 +67,21 @@ export function checkDirection(pts, idx, from, to) {
   const diff = angDiff(mv, rb), a = Math.abs(diff);
   return { state: a < 55 ? 'ok' : a > 115 ? 'bad' : 'turn', rel: diff };
 }
+
+/* point about `ahead` metres further along the route from the nearest vertex (steadier than the next vertex) */
+export function lookAhead(pts, idx, pos, ahead) {
+  let acc = meters(pos, { lat: pts[idx][1], lng: pts[idx][0] });
+  let j = idx;
+  while (acc < ahead && j < pts.length - 1) { acc += meters({ lat: pts[j][1], lng: pts[j][0] }, { lat: pts[j + 1][1], lng: pts[j + 1][0] }); j++; }
+  return { lat: pts[j][1], lng: pts[j][0] };
+}
+
+/* instruction from the way you face (heading) and the bearing to the point ahead */
+export function instruction(heading, targetBearing) {
+  const rel = angDiff(heading, targetBearing), a = Math.abs(rel);
+  const side = rel < 0 ? 'left' : 'right';
+  if (a < 22) return { key: 'straight', rel, state: 'ok' };
+  if (a < 60) return { key: 'slight_' + side, rel, state: 'ok' };
+  if (a < 135) return { key: 'turn_' + side, rel, state: 'turn' };
+  return { key: 'back', rel, state: 'bad' };
+}

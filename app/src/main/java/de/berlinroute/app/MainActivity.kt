@@ -11,6 +11,8 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.speech.RecognizerIntent
+import org.json.JSONObject
 import android.view.WindowManager
 import android.webkit.GeolocationPermissions
 import android.webkit.JavascriptInterface
@@ -52,6 +54,14 @@ class MainActivity : AppCompatActivity() {
             geoOrigin = null
         }
 
+    // voice input: Android's own speech dialog (the WebView has no web speech API)
+    private val voiceResult =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+            val list = r.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            val text = if (r.resultCode == RESULT_OK && !list.isNullOrEmpty()) list[0] else ""
+            web.evaluateJavascript("window.__voiceResult && window.__voiceResult(" + JSONObject.quote(text) + ")", null)
+        }
+
     private fun hasLocationPermission() =
         ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
             ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
@@ -67,6 +77,24 @@ class MainActivity : AppCompatActivity() {
                 c.isAppearanceLightNavigationBars = !dark
             }
         }
+
+        @JavascriptInterface
+        fun startVoice(lang: String) {
+            runOnUiThread {
+                try {
+                    val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                    i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang)
+                    i.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                    voiceResult.launch(i)
+                } catch (e: ActivityNotFoundException) {
+                    web.evaluateJavascript("window.__voiceResult && window.__voiceResult('', 'unavailable')", null)
+                }
+            }
+        }
+
+        @JavascriptInterface
+        fun hasVoice(): Boolean = true
 
         @JavascriptInterface
         fun keepScreenOn(on: Boolean) {
@@ -180,7 +208,7 @@ class MainActivity : AppCompatActivity() {
         c.readTimeout = 10000
         c.requestMethod = "GET"
         c.setRequestProperty("Accept", "application/json")
-        c.setRequestProperty("User-Agent", "Bearline/0.5 (Android)")
+        c.setRequestProperty("User-Agent", "Bearline/0.6 (Android)")
         val code = c.responseCode
         val body = if (code in 200..299) c.inputStream else (c.errorStream ?: ByteArrayInputStream(ByteArray(0)))
         val reason = c.responseMessage?.takeIf { it.isNotBlank() } ?: if (code in 200..299) "OK" else "Error"

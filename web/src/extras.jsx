@@ -1,11 +1,12 @@
 /* Extra helpers: ticket zones, station help, alternatives, night info, voice assistant. */
 import React, { useEffect, useState } from 'react';
 import { tr, fmtTime, getLang } from './i18n.js';
-import { Ico, Badge } from './ui.jsx';
+import { Ico, Badge, SearchBox } from './ui.jsx';
 import { ST } from './net.js';
 import { board, journeys, cleanName } from './live.js';
-import { distKm } from './geo.js';
+import { distKm, nearestStation } from './geo.js';
 import { geocode } from './walk.js';
+import { listen, speechLang, voiceAvailable } from './voice.js';
 
 const C0 = { lat: 52.5219, lng: 13.4115 };
 /* zone estimate: A = inside the Ringbahn (about 8 km around the centre), B = rest of Berlin (about 21 km), C = beyond. An estimate, not an official map. */
@@ -47,8 +48,21 @@ async function nearbyAmenities(lat, lng) {
   } finally { clearTimeout(t); }
 }
 
-export function StationHelp({ names }) {
-  const [name, setName] = useState(names[0] || '');
+/* pick any station, street or place (places resolve to the nearest S+U station) */
+export function PlacePick({ store, onName }) {
+  const [q, setQ] = useState('');
+  return (
+    <div className="fld pk"><Ico n="search" className="s" />
+      <SearchBox value={q} onChange={setQ} placeholder={tr('pickPlace')} store={store} ddTop={50} places
+        onPick={(s) => { const st = s.place ? nearestStation(s.lat, s.lng).st : s; onName(st.name); setQ(''); }} />
+    </div>
+  );
+}
+
+export function StationHelp({ names: n0, store }) {
+  const [extra, setExtra] = useState([]);
+  const names = [...extra, ...n0.filter((x) => extra.indexOf(x) < 0)];
+  const [name, setName] = useState(n0[0] || '');
   const [plat, setPlat] = useState(null);
   const [am, setAm] = useState(null);
   useEffect(() => {
@@ -61,6 +75,7 @@ export function StationHelp({ names }) {
   return (
     <>
       <h3>{tr('shTitle')}</h3>
+      <PlacePick store={store} onName={(x) => { setExtra((o) => [x, ...o]); setName(x); }} />
       {names.length > 1 && <div className="chips">{names.map((n) => <button key={n} className={'chip' + (n === name ? ' on' : '')} onClick={() => setName(n)}>{n}</button>)}</div>}
       <p><b>{name}</b></p>
       <div className="sec">{tr('shPlatforms')}</div>
@@ -75,7 +90,7 @@ export function StationHelp({ names }) {
   );
 }
 
-export function Alternatives({ nav, store }) {
+export function Alternatives({ nav, store, inline }) {
   const [stepFree, setSf] = useState(!!store.step);
   const [st, setSt] = useState({ s: 'loading', list: [] });
   const a = nav.from && nav.from.name, b = nav.to && nav.to.name;
@@ -87,8 +102,7 @@ export function Alternatives({ nav, store }) {
   if (!a || !b) return (<><h3>{tr('alTitle')}</h3><p className="mute">{tr('tkNoRoute')}</p></>);
   return (
     <>
-      <h3>{tr('alTitle')}</h3>
-      <p><b>{a}</b> &rarr; <b>{b}</b></p>
+      {inline ? <div className="sec">{tr('alTitle')}</div> : <><h3>{tr('alTitle')}</h3><p><b>{a}</b> &rarr; <b>{b}</b></p></>}
       <div className="li" style={{ paddingLeft: 0, paddingRight: 0 }}><span className="tx">{tr('stepFree')}<small>{tr('alSfSub')}</small></span><button className={'tgl' + (stepFree ? ' on' : '')} role="switch" aria-checked={stepFree} onClick={() => setSf((v) => !v)} /></div>
       {st.s === 'loading' && <p className="mute">{tr('alLoading')}</p>}
       {st.s === 'err' && <p className="mute">{tr('alNone')}</p>}
@@ -100,13 +114,15 @@ export function Alternatives({ nav, store }) {
           {j.warn && <small className="wn"><Ico n="warn" />{tr('alDisr')}</small>}
         </div>
       ))}
-      <p className="mute">{tr('credLive')}</p>
+      {!inline && <p className="mute">{tr('credLive')}</p>}
     </>
   );
 }
 
-export function NightInfo({ names }) {
-  const [name, setName] = useState(names[0] || 'Alexanderplatz');
+export function NightInfo({ names: n0, store }) {
+  const [extra, setExtra] = useState([]);
+  const names = [...extra, ...n0.filter((x) => extra.indexOf(x) < 0)];
+  const [name, setName] = useState(n0[0] || 'Alexanderplatz');
   const [rows, setRows] = useState(null);
   const [lines, setLines] = useState([]);
   useEffect(() => { import('./modes-bus.json').then((m) => setLines(Object.keys((m.default || m).l).filter((k) => /^N\d/.test(k)).sort((x, y) => x.localeCompare(y, 'en', { numeric: true })))); }, []);
@@ -122,6 +138,7 @@ export function NightInfo({ names }) {
   return (
     <>
       <h3>{tr('nightTitle')}</h3>
+      <PlacePick store={store} onName={(x) => { setExtra((o) => [x, ...o]); setName(x); }} />
       {names.length > 1 && <div className="chips">{names.map((n) => <button key={n} className={'chip' + (name === n ? ' on' : '')} onClick={() => setName(n)}>{n}</button>)}</div>}
       <p><b>{name}</b></p>
       <div className="sec">{tr('nightAfter')}</div>
@@ -134,7 +151,6 @@ export function NightInfo({ names }) {
 }
 
 /* voice + typed assistant: rule based, no cloud AI and no key inside the app */
-const SPEECH = { en: 'en-GB', de: 'de-DE', es: 'es-ES', it: 'it-IT', fr: 'fr-FR', hi: 'hi-IN', pa: 'pa-IN', zh: 'zh-CN', ko: 'ko-KR' };
 const normS = (s) => String(s).toLowerCase().replace(/straße|strasse/g, 'str').replace(/^(s\+u|s|u)\s+/, '').replace(/[^\p{L}\p{N}]/gu, '');
 export function parseIntent(text) {
   const t = text.trim();
@@ -152,34 +168,36 @@ export async function resolvePlace(text) {
   try { const g = await geocode(text); if (g[0]) { let best = null, bd = 1e9; ST.forEach((s) => { const d = distKm(g[0].lat, g[0].lng, s.lat, s.lng); if (d < bd) { bd = d; best = s; } }); return { st: best, place: g[0] }; } } catch (e) { /* offline */ }
   return null;
 }
-export function Assistant({ onGo, say }) {
-  const [txt, setTxt] = useState(''), [busy, setBusy] = useState(false), [listen, setListen] = useState(false), [msg, setMsg] = useState('');
-  const SR = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
+export function Assistant({ onGo, say, auto }) {
+  const [txt, setTxt] = useState(''), [busy, setBusy] = useState(false), [listening, setListen] = useState(false), [msg, setMsg] = useState('');
   const run = async (q) => {
     const text = (q || txt).trim(); if (!text) return; setBusy(true); setMsg('');
     const it = parseIntent(text); const to = await resolvePlace(it.to); const from = it.from ? await resolvePlace(it.from) : null;
     setBusy(false);
-    if (!to) { setMsg(tr('asNotFound')); return; }
-    const out = to.place ? to.place.name : to.st.name; setMsg(tr('asDone') + ': ' + out);
-    try { if (window.speechSynthesis) { const u = new SpeechSynthesisUtterance(tr('asDone') + ': ' + out); u.lang = SPEECH[getLang()] || 'en-GB'; window.speechSynthesis.speak(u); } } catch (e) { /* no tts */ }
+    if (!to) { setMsg(tr('asNotFound') + ': ' + text); return; }
+    const out = to.place ? to.place.name : to.st.name; setMsg(tr('asDone') + ' ' + out);
+    try { if (window.speechSynthesis) { const u = new SpeechSynthesisUtterance(tr('asDone') + ' ' + out); u.lang = speechLang(getLang()); window.speechSynthesis.speak(u); } } catch (e) { /* no tts */ }
     onGo(from, to);
   };
   const mic = () => {
-    if (!SR) { setMsg(tr('asNoMic')); return; }
-    const r = new SR(); r.lang = SPEECH[getLang()] || 'en-GB'; r.interimResults = false; r.maxAlternatives = 1;
-    r.onstart = () => setListen(true); r.onend = () => setListen(false); r.onerror = () => { setListen(false); setMsg(tr('asNoMic')); };
-    r.onresult = (e) => { const t = e.results[0][0].transcript; setTxt(t); run(t); };
-    try { r.start(); } catch (e) { setListen(false); }
+    setMsg('');
+    listen(getLang(), (t, err) => {
+      setListen(false);
+      if (t) { setTxt(t); run(t); return; }
+      setMsg(err === 'perm' ? tr('asErrPerm') : err === 'network' ? tr('asErrNet') : err === 'none' ? tr('asErrNone') : tr('asNoMic') + ' ' + tr('asKbHint'));
+    }, () => setListen(true));
   };
+  useEffect(() => { if (auto) setTimeout(mic, 350); /* eslint-disable-next-line */ }, []);
   return (
     <>
       <h3>{tr('asTitle')}</h3>
       <p className="mute">{tr('asHint')}</p>
       <div className="asrow"><input className="asin" value={txt} onChange={(e) => setTxt(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') run(); }} placeholder={tr('asPh')} />
-        <button className={'btn sq2' + (listen ? ' rec' : '')} aria-label={tr('asMic')} onClick={mic}><Ico n="mic" /></button></div>
+        <button className={'btn sq2' + (listening ? ' rec' : '')} aria-label={tr('asMic')} onClick={mic}><Ico n="mic" /></button></div>
       <button className="btn" style={{ width: '100%', marginTop: 10 }} disabled={busy} onClick={() => run()}><Ico n="nav" />{busy ? tr('asBusy') : tr('asGo')}</button>
-      {listen && <p className="mute">{tr('asListen')}</p>}
+      {listening && <p className="mute">{tr('asListen')}</p>}
       {msg && <p>{msg}</p>}
+      {!voiceAvailable() && !msg && <p className="mute">{tr('asKbHint')}</p>}
       <p className="mute">{tr('asNote')}</p>
     </>
   );

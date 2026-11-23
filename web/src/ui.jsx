@@ -98,7 +98,7 @@ export function Badges({ s, max }) {
 // a badge for a line name that may not exist in our data (live data can contain extras)
 export function LineTag({ line, product }) {
   if (INFO[line]) return <Badge line={line} />;
-  return <span className="bdg" style={{ background: product === 'subway' ? '#1670b8' : '#3d9a4a' }}>{line}</span>;
+  return <span className="bdg" style={{ background: product === 'subway' ? '#1670b8' : product === 'bus' ? '#a5027d' : product === 'tram' ? '#d6001c' : product === 'regional' ? '#e30613' : '#3d9a4a' }}>{line}</span>;
 }
 
 /* Input with a dropdown of station suggestions. The parent supplies the wrapper (icon, dot, clear button). */

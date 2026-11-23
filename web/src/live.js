@@ -4,6 +4,7 @@ import { getLang } from './i18n.js';
 
 export const API = 'https://v6.vbb.transport.rest';
 const PRODUCTS = 'suburban=true&subway=true&bus=false&tram=false&ferry=false&express=false&regional=false';
+const PRODUCTS_ALL = 'suburban=true&subway=true&bus=true&tram=true&ferry=false&express=false&regional=true';
 const cache = new Map();      // url -> { t, data }
 const inflight = new Map();   // url -> promise
 
@@ -29,7 +30,19 @@ const idKey = 'bl_ids';
 let ids = {};
 try { ids = JSON.parse(localStorage.getItem(idKey) || '{}'); } catch (e) { ids = {}; }
 
-export async function stationId(name) {
+export async function stationId(name, at) {
+  if (at) {
+    // bus and tram stops share names, so pick the stop closest to the given coordinates
+    const key = name + '@' + at.lat.toFixed(3) + ',' + at.lng.toFixed(3); if (ids[key]) return ids[key];
+    const list = await getJson('/locations?query=' + encodeURIComponent(name) + '&results=10&stops=true&addresses=false&poi=false&language=' + getLang(), 6 * 3600 * 1000);
+    const stops = (Array.isArray(list) ? list : []).filter((x) => x && x.type === 'stop' && x.id);
+    const d = (x) => x.location ? (x.location.latitude - at.lat) ** 2 + (x.location.longitude - at.lng) ** 2 : 1e9;
+    stops.sort((a, b) => d(a) - d(b));
+    if (!stops.length) throw new Error('no station');
+    ids[key] = stops[0].id;
+    try { localStorage.setItem(idKey, JSON.stringify(ids)); } catch (e) { /* ignore */ }
+    return ids[key];
+  }
   if (ids[name]) return ids[name];
   const q = '/locations?query=' + encodeURIComponent(name) + '&results=6&stops=true&addresses=false&poi=false&language=' + getLang();
   const list = await getJson(q, 6 * 3600 * 1000);
@@ -55,8 +68,8 @@ const mapRow = (d, arrival) => {
 
 /* board: kind 'departures' | 'arrivals'. opts: { when: Date|ms, duration, results } */
 export async function board(name, kind, opts) {
-  const id = await stationId(name), o = opts || {};
-  let q = '/stops/' + id + '/' + kind + '?' + PRODUCTS + '&remarks=false&results=' + (o.results || 12) + '&duration=' + (o.duration || 60) + '&language=' + getLang();
+  const o = opts || {}, id = await stationId(name, o.at);
+  let q = '/stops/' + id + '/' + kind + '?' + (o.all ? PRODUCTS_ALL : PRODUCTS) + '&remarks=false&results=' + (o.results || 12) + '&duration=' + (o.duration || 60) + '&language=' + getLang();
   if (o.when) q += '&when=' + encodeURIComponent(new Date(o.when).toISOString());
   const d = await getJson(q, 15000);
   const list = Array.isArray(d) ? d : (d && (d.departures || d.arrivals)) || [];
