@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { R, INFO, lum } from './net.js';
 import { tr } from './i18n.js';
+import { geocode } from './walk.js';
 
 const P = {
   map: <path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2zM9 4v14M15 6v14" />,
@@ -32,6 +33,11 @@ const P = {
   sun: <><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19" /></>,
   bulb: <path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z" />,
   vibrate: <><rect x="8" y="3" width="8" height="18" rx="2.5" /><path d="M4 8v8M20 8v8" /></>,
+  warn: <path d="M12 3l10 18H2zM12 10v5M12 18h.01" />,
+  bell: <path d="M6 17V11a6 6 0 0 1 12 0v6l2 2H4zM10 21h4" />,
+  arrowup: <path d="M12 19V5M5 12l7-7 7 7" />,
+  uturn: <path d="M8 20V9a4 4 0 0 1 8 0v8M12 13l4 4 4-4" />,
+  pinmark: <><path d="M12 21s7-6.2 7-11.5A7 7 0 0 0 5 9.5C5 14.8 12 21 12 21z" /><circle cx="12" cy="9.5" r="2.4" /></>,
   home: <path d="M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10" />,
   work: <><rect x="3" y="7" width="18" height="13" rx="2.5" /><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2M3 13h18" /></>,
   train: <><rect x="5" y="3" width="14" height="14" rx="3.5" /><path d="M5 11h14M8.5 21l2-4M15.5 21l-2-4" /><circle cx="9" cy="14" r=".6" fill="currentColor" /><circle cx="15" cy="14" r=".6" fill="currentColor" /></>,
@@ -74,8 +80,9 @@ export function Logo({ size = 96, id = 'lg' }) {
 }
 
 export function Badge({ line, big }) {
-  const c = INFO[line].c;
-  return <span className={'bdg ' + INFO[line].p + (big ? ' lg' : '')} style={{ background: c, color: lum(c) > 0.72 ? '#222' : '#fff' }}>{line}</span>;
+  const inf = INFO[line] || { c: /^(M?\d|RE|RB)/.test(line) ? (/^R/.test(line) ? '#d6001c' : /^M?\d{1,2}$/.test(line) ? '#c8102e' : '#a5027d') : '#6b7280', p: 'o' };
+  const c = inf.c;
+  return <span className={'bdg ' + inf.p + (big ? ' lg' : '')} style={{ background: c, color: lum(c) > 0.72 ? '#222' : '#fff' }}>{line}</span>;
 }
 
 export function Badges({ s, max }) {
@@ -95,8 +102,14 @@ export function LineTag({ line, product }) {
 }
 
 /* Input with a dropdown of station suggestions. The parent supplies the wrapper (icon, dot, clear button). */
-export function SearchBox({ value, onChange, onPick, placeholder, store, ddTop }) {
+export function SearchBox({ value, onChange, onPick, placeholder, store, ddTop, places }) {
   const [open, setOpen] = useState(false);
+  const [pl, setPl] = useState([]);
+  useEffect(() => {
+    if (!places || !open || value.trim().length < 3) { setPl([]); return undefined; }
+    let dead = false; const t = setTimeout(() => { geocode(value).then((r) => { if (!dead) setPl(r); }).catch(() => {}); }, 400);
+    return () => { dead = true; clearTimeout(t); };
+  }, [value, open, places]);
   const inp = useRef(null);
 
   const content = useMemo(() => {
@@ -134,7 +147,7 @@ export function SearchBox({ value, onChange, onPick, placeholder, store, ddTop }
           {content.map((g, gi) => (
             <React.Fragment key={gi}>
               {g.head && <div className="hd">{g.head}</div>}
-              {g.items.length === 0 && <div className="it" style={{ color: 'var(--mute)' }}>{tr('noStation')}</div>}
+              {g.items.length === 0 && !(places && pl.length) && <div className="it" style={{ color: 'var(--mute)' }}>{tr('noStation')}</div>}
               {g.items.map((s, k) => (
                 <div className="it" key={g.head + s.i + k} onPointerDown={(e) => { e.preventDefault(); pick(s); }}>
                   {g.icons && <Ico n={g.icons[k]} className="pl" />}
@@ -142,6 +155,12 @@ export function SearchBox({ value, onChange, onPick, placeholder, store, ddTop }
                 </div>
               ))}
             </React.Fragment>
+          ))}
+          {places && pl.length > 0 && <div className="hd">{tr('places')}</div>}
+          {places && pl.map((p, k) => (
+            <div className="it" key={'pl' + k} onPointerDown={(e) => { e.preventDefault(); pick(p); }}>
+              <Ico n="pinmark" className="pl" /><span className="nm">{p.name}{p.sub ? <small className="sub"> {p.sub}</small> : null}</span>
+            </div>
           ))}
         </div>
       )}

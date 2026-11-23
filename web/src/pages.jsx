@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { changeTip } from './carriage.js';
+import { meters, walkMin } from './walk.js';
+import { TicketHelper, StationHelp, Alternatives, NightInfo, Assistant } from './extras.jsx';
 import { R, ST, NET } from './net.js';
 import { Badge, Badges, SearchBox, Ico, Logo, LineTag } from './ui.jsx';
 import { tr, cnt, fmtTime, fmtDay, LANGS } from './i18n.js';
@@ -20,7 +22,7 @@ export function planTimes(when, min) {
 }
 export const whenLabel = (w) => (w.mode === 'now' ? tr('leaveNow') : (w.mode === 'dep' ? tr('departAt') : tr('arriveBy')) + ' ' + fmtDay(w.ts) + ' ' + fmtTime(w.ts));
 
-function RouteCard({ r, i, sel, when, onSelect, onShow, onStart, onShare, active }) {
+function RouteCard({ fromPlace, toPlace, onModal, r, i, sel, when, onSelect, onShow, onStart, onShare, active }) {
   const t = planTimes(when, r.minutes), lg0 = r.legs[0], station = ST[lg0.stations[0]].name;
   // live board for the first station while this card is open
   const q = useMemo(() => {
@@ -39,6 +41,9 @@ function RouteCard({ r, i, sel, when, onSelect, onShow, onStart, onShare, active
   // with a live first train the arrival time follows the real departure
   let dep = t.dep, arr = t.arr;
   if (when.mode !== 'arr' && liveFirst) { dep = liveFirst.when; arr = liveFirst.when + (r.minutes - lg0.waitMin) * 60000; }
+  const sA = ST[lg0.stations[0]], sB = ST[r.legs[r.legs.length - 1].stations[r.legs[r.legs.length - 1].stations.length - 1]];
+  const wStart = fromPlace ? Math.round(meters(fromPlace, sA) * 1.25) : 0, wEnd = toPlace ? Math.round(meters(toPlace, sB) * 1.25) : 0;
+  if (wEnd) arr += walkMin(wEnd) * 60000;
   const tips = r.legs.map((l, k) => (k > 0 ? changeTip(r.legs[k - 1], l) : null));
   return (
     <div className={'rc glass' + (sel ? ' sel' : '')} onClick={onSelect} style={{ animationDelay: i * 70 + 'ms' }}>
@@ -57,6 +62,7 @@ function RouteCard({ r, i, sel, when, onSelect, onShow, onStart, onShare, active
         <>
           <NextTrains st={{ ...st, items: picked }} line={lg0.line} />
           <ul className="steps">
+            {wStart > 60 && <li className="walkli" style={{ '--c': '#8a93aa' }}><span className="pin" /><b><Ico n="walk" className="s" />{tr('walkFrom', { m: walkMin(wStart), d: wStart >= 1000 ? (wStart / 1000).toFixed(1) + ' km' : wStart + ' m', place: fromPlace.me ? tr('yourLocation') : fromPlace.name, st: sA.name })}</b></li>}
             {r.legs.map((lg, li) => {
               const a = ST[lg.stations[0]], b = ST[lg.stations[lg.stations.length - 1]];
               return (
@@ -66,6 +72,7 @@ function RouteCard({ r, i, sel, when, onSelect, onShow, onStart, onShare, active
                     <small><Badge line={lg.line} /> {tr('towards')} {lg.toward} &middot; {cnt('stop', lg.stops)} &middot; {Math.round(lg.rideMin)} {tr('min')}</small>
                   </li>
                   {li === r.legs.length - 1 && <li style={{ '--c': '#ef4455' }}><span className="pin" /><b>{tr('arriveAt')} {b.name}</b></li>}
+                  {li === r.legs.length - 1 && wEnd > 60 && <li className="walkli" style={{ '--c': '#8a93aa' }}><span className="pin" /><b><Ico n="walk" className="s" />{tr('walkTo2', { m: walkMin(wEnd), d: wEnd >= 1000 ? (wEnd / 1000).toFixed(1) + ' km' : wEnd + ' m', place: toPlace.name })}</b></li>}
                 </React.Fragment>
               );
             })}
@@ -73,6 +80,8 @@ function RouteCard({ r, i, sel, when, onSelect, onShow, onStart, onShare, active
           {st.state === 'error' && <div className="acts" style={{ marginBottom: 8 }}><button className="btn alt sm" onClick={(e) => { e.stopPropagation(); reload(); }}><Ico n="refresh" />{tr('retry')}</button></div>}
           <div className="acts">
             <button className="btn alt sm" onClick={(e) => { e.stopPropagation(); onShow(); }}><Ico n="map" />{tr('map')}</button>
+            <button className="btn alt sm sq" aria-label={tr('alTitle')} onClick={(e) => { e.stopPropagation(); onModal('alt'); }}><Ico n="refresh" /></button>
+            <button className="btn alt sm sq" aria-label={tr('tkTitle')} onClick={(e) => { e.stopPropagation(); onModal('tkt'); }}><Ico n="ticket" /></button>
             <button className="btn alt sm sq" aria-label={tr('share')} onClick={(e) => { e.stopPropagation(); onShare(); }}><Ico n="share" /></button>
             <button className="btn sm" style={{ flex: 2 }} onClick={(e) => { e.stopPropagation(); onStart(); }}><Ico n="nav" />{tr('start')}</button>
           </div>
@@ -82,7 +91,7 @@ function RouteCard({ r, i, sel, when, onSelect, onShow, onStart, onShare, active
   );
 }
 
-export function NavPage({ on, nav, fq, setFq, tq, setTq, store, when, onTime, onPickFrom, onPickTo, onSwap, onSelect, onShow, onStart, onShare, onChipStation, onChipTrip, onLocate, onBoard, onPlaces, onSetDest }) {
+export function NavPage({ onModal, on, nav, fq, setFq, tq, setTq, store, when, onTime, onPickFrom, onPickTo, onSwap, onSelect, onShow, onStart, onShare, onChipStation, onChipTrip, onLocate, onBoard, onPlaces, onSetDest }) {
   const ready = nav.from && nav.to;
   const boardName = nav.from ? nav.from.name : nav.to ? nav.to.name : '';
   const mine = [];
@@ -93,11 +102,11 @@ export function NavPage({ on, nav, fq, setFq, tq, setTq, store, when, onTime, on
       <h1><small>{tr('navSub')}</small>{tr('whereTo')}</h1>
       <div className="panel glass">
         <div className="fld"><span className="pin2" />
-          <SearchBox value={fq} onChange={setFq} onPick={onPickFrom} placeholder={tr('startStation')} store={store} ddTop={58} />
+          <SearchBox value={fq} onChange={setFq} onPick={onPickFrom} placeholder={tr('startStation')} store={store} ddTop={58} places />
           <button className="loc" aria-label={tr('useMyLocation')} onClick={onLocate}><Ico n="locate" /></button>
         </div>
         <div className="fld"><span className="pin2 b" />
-          <SearchBox value={tq} onChange={setTq} onPick={onPickTo} placeholder={tr('destination')} store={store} ddTop={58} />
+          <SearchBox value={tq} onChange={setTq} onPick={onPickTo} placeholder={tr('destination')} store={store} ddTop={58} places />
         </div>
         <button id="swap" aria-label={tr('swap')} onClick={onSwap}><Ico n="swap" /></button>
       </div>
@@ -114,7 +123,7 @@ export function NavPage({ on, nav, fq, setFq, tq, setTq, store, when, onTime, on
 
       {ready && nav.routes.length === 0 && <div className="empty">{tr('noRoute')}</div>}
       {ready && nav.routes.map((r, i) => (
-        <RouteCard key={r.key + r.minutes + '|' + when.mode + when.ts} r={r} i={i} sel={i === nav.sel} when={when} active={on}
+        <RouteCard key={r.key + r.minutes + '|' + when.mode + when.ts + (nav.toPlace ? nav.toPlace.name : '') + (nav.fromPlace ? nav.fromPlace.name : '')} fromPlace={nav.fromPlace} toPlace={nav.toPlace} onModal={onModal} r={r} i={i} sel={i === nav.sel} when={when} active={on}
           onSelect={() => onSelect(i)} onShow={() => onShow(r)} onStart={() => onStart(r)} onShare={() => onShare(r)} />
       ))}
       {ready && nav.routes.length > 0 && <p className="note">{tr('estNote')}</p>}
@@ -238,7 +247,15 @@ export function MorePage({ on, store, setStore, open, toast, gpsStatus }) {
       <div className="list glass">
         <Row ico="home" title={tr('savedPlaces')} sub={saved ? cnt('saved', saved) : tr('savedNone')} onClick={() => open('places')} />
         <Row ico="clock" title={tr('recentTrips')} sub={store.rec.length ? store.rec[0][0] + ' → ' + store.rec[0][1] : tr('none')} onClick={() => open('rec')} />
+        <Row ico="ticket" title={tr('tkTitle')} sub={tr('tkSub')} onClick={() => open('tkt')} />
         <Row ico="ticket" title={tr('tickets')} sub={tr('zonesSub')} onClick={() => open('tic')} />
+      </div>
+      <div className="list glass">
+        <Row ico="mic" title={tr('asTitle')} sub={tr('asSub')} onClick={() => open('assist')} />
+        <Row ico="building" title={tr('shTitle')} sub={tr('shSub')} onClick={() => open('sthelp')} />
+        <Row ico="refresh" title={tr('alTitle')} sub={tr('alSub')} onClick={() => open('alt')} />
+        <Row ico="moon" title={tr('nightTitle')} sub={tr('nightSub')} onClick={() => open('night')} />
+        <Row ico="share" title={tr('shareTrip')} sub={tr('shareTripSub')} onClick={() => open('trip')} />
       </div>
       <div className="list glass">
         <div className="li"><span className="ico"><Ico n="moon" /></span><span className="tx">{tr('appearance')}</span>
@@ -254,15 +271,12 @@ export function MorePage({ on, store, setStore, open, toast, gpsStatus }) {
       </div>
       <div className="sec">{tr('comingSoon')}</div>
       <div className="list glass">
-        <Row ico="mic" title={tr('voice')} sub={tr('voiceSub')} soon onClick={() => toast(tr('plannedMsg'))} />
-        <Row ico="bot" title={tr('aiAssist')} sub={tr('aiSub')} soon onClick={() => toast(tr('plannedMsg'))} />
-        <Row ico="map" title={tr('newMap')} sub={tr('newMapSub')} soon onClick={() => toast(tr('plannedMsg'))} />
         <Row ico="ticket" title={tr('ticketsBuy')} sub={tr('ticketsBuySub')} soon onClick={() => toast(tr('plannedMsg'))} />
       </div>
       <div className="list glass">
         <Row ico="share" title={tr('shareApp')} onClick={() => open('share')} />
         <Row ico="mail" title={tr('feedback')} onClick={() => open('fb')} />
-        <Row ico="info" title={tr('about')} sub={tr('version') + ' 0.5'} onClick={() => open('about')} />
+        <Row ico="info" title={tr('about')} sub={tr('version') + ' 0.6'} onClick={() => open('about')} />
         <Row ico="lock" title={tr('privacy')} sub={tr('privacySub')} onClick={() => open('priv')} />
       </div>
     </section>
@@ -356,8 +370,18 @@ function PlacesModal({ store, setStore, onPick, say }) {
   );
 }
 
-export function ModalContent({ kind, store, setStore, board, onFav, onTrip, onLang, onApplyTime, when, say }) {
+export function ModalContent({ kind, store, setStore, board, onFav, onTrip, onLang, onApplyTime, when, say, nav, stNames, onAssist }) {
   switch (kind) {
+    case 'tkt':
+      return <TicketHelper nav={nav} />;
+    case 'sthelp':
+      return <StationHelp names={stNames && stNames.length ? stNames : ['Alexanderplatz']} />;
+    case 'alt':
+      return <Alternatives nav={nav} store={store} />;
+    case 'night':
+      return <NightInfo names={stNames && stNames.length ? stNames : ['Alexanderplatz']} />;
+    case 'assist':
+      return <Assistant onGo={onAssist} say={say} />;
     case 'places':
       return <PlacesModal store={store} setStore={setStore} onPick={onFav} say={say} />;
     case 'board':

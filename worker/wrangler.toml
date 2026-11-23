@@ -1,0 +1,9 @@
+name = "bearline-share"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+
+# Create the namespace once with:  npx wrangler kv namespace create TRIPS
+# then paste the id it prints below.
+[[kv_namespaces]]
+binding = "TRIPS"
+id = "09de3eb6fbd24ea6b132fa61550c4640"

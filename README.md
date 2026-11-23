@@ -108,3 +108,16 @@ Regenerate after the dataset changes:
     python3 -I scripts/build_changes.py <scratch>/node_modules/vbb-change-positions/data.ndjson web/src/data.json web/src/changes.json
 
 Station exits are not included yet (VBB entrance coordinates are a possible next step).
+
+## v0.6
+
+- Street navigation: address and place search (Photon), walking route and live position on a street map (OpenStreetMap, OSRM foot routing, OpenFreeMap tiles). Walk to the first station, then ride, then walk to the destination.
+- Direction check: green sign when you move the right way, red U-turn sign when you move the wrong way (walking and train legs).
+- Separate tram, bus and RE maps built from VBB open data (CC BY 3.0) with real stop connectivity (`scripts/build_modes.py`). Original drawings, marked unofficial.
+- Get-off alert (vibration, beep, banner), ticket helper (zone estimate), station help (live platforms, lifts and toilets from OpenStreetMap), step-free alternatives and disruption alternatives (VBB journeys), night and weekend info, voice and typed assistant (rule based, no cloud AI), share trip link, offline cache (saved boards, web service worker).
+- Languages: English, Deutsch, Espanol, Italiano, Francais, Hindi, Punjabi, Chinese, Korean.
+- S+U map has more space (`scripts/spread_layout.py`, connections unchanged).
+
+Credits: VBB open data (CC BY 3.0), OpenStreetMap contributors (ODbL), OpenFreeMap, OpenMapTiles, Photon by komoot, routing.openstreetmap.de, vbb-change-positions (ODbL). The app is not affiliated with BVG, S-Bahn Berlin or VBB.
+
+Live trip sharing server: see `worker/README.md` (Cloudflare Worker + KV, free tier). Set `SHARE_API` in `web/src/config.js` after deploying.

@@ -3,6 +3,11 @@ import { R, ST, clamp, pointAt } from './net.js';
 import { MapEngine } from './mapEngine.js';
 import { GpsTracker, project, distKm, nearestStation, snapToRoute, geoAt, getPositionOnce, haptic, keepAwake } from './geo.js';
 import { Badge, SearchBox, Ico, Splash, BerlinClock } from './ui.jsx';
+const ModeMap = React.lazy(() => import('./modemap.jsx'));
+const WalkView = React.lazy(() => import('./walkview.jsx'));
+import { meters } from './walk.js';
+import { beep } from './geo.js';
+import { SHARE_API } from './config.js';
 import { NavPage, MorePage, NearbyPage, ModalContent, StartSheet } from './pages.jsx';
 import { setLang, tr, cnt, fmtTime } from './i18n.js';
 
@@ -21,6 +26,17 @@ export default function App() {
   const [store, setStore] = useState(loadStore);
   setLang(store.lang);
   const [booted, setBooted] = useState(false);
+  const [mult, setMult] = useState(1);
+  const [net, setNet] = useState('rail');
+  const [walk, setWalk] = useState(null);
+  const [share, setShare] = useState(null); // { id, key, url } while live sharing is on
+  const shareRef = useRef(null);
+  useEffect(() => {
+    if (!share) return undefined;
+    const t = setInterval(() => { if (shareRef.current) sendPos(shareRef.current); }, 20000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line
+  }, [share]);
   const [when, setWhen] = useState({ mode: 'now', ts: 0 });
   const [boardName, setBoardName] = useState('');
   const [page, setPage] = useState('pMap');
@@ -46,6 +62,7 @@ export default function App() {
   const cvRef = useRef(null), glRef = useRef(null), realDiv = useRef(null), eng = useRef(null), scene = useRef(null), real = useRef(null), trk = useRef(null);
   const ov = useRef(null);
   const live = useRef({ on: false, phase: 'idle', source: 'demo', p: 0, target: 0, play: true, follow: true, t0: 0, last: 0, adv: null, fix: null, lastFixAt: 0, gpsIdx: 0, offKm: 0, offSince: 0, alerted: '', leg: -1, done: false });
+  live.current.mult = mult;
   const viewRef = useRef('2d'), loadingRef = useRef(false), lastInfo = useRef(''), toastT = useRef(0), storeRef = useRef(store);
   const locateRef = useRef(false), locateFirst = useRef(false), navRef = useRef(nav);
   storeRef.current = store; navRef.current = nav;
@@ -109,9 +126,10 @@ export default function App() {
     if (from && to && from === to) { say(tr('sameStation')); return []; }
     return from && to ? R.routes(from.i, to.i) : [];
   };
-  const setFrom = (s) => { setNav((n) => ({ ...n, from: s, routes: computeRoutes(s, n.to), sel: 0 })); setFq(s ? s.name : ''); };
-  const setTo = (s) => { setNav((n) => ({ ...n, to: s, routes: computeRoutes(n.from, s), sel: 0 })); setTq(s ? s.name : ''); };
-  const clearRoutes = (key) => setNav((n) => ({ ...n, [key]: null, routes: [], sel: 0 }));
+  const setFrom = (s, pl) => { setNav((n) => ({ ...n, from: s, fromPlace: pl || null, routes: computeRoutes(s, n.to), sel: 0 })); setFq(s ? s.name : ''); };
+  const setTo = (s, pl) => { setNav((n) => ({ ...n, to: s, toPlace: pl || null, routes: computeRoutes(n.from, s), sel: 0 })); setTq(s ? s.name : ''); };
+  const pickPlace = (kind, pl) => { const st = nearestStation(pl.lat, pl.lng).st; if (kind === 'from') { setFrom(st, pl); setFq(pl.name); } else { setTo(st, pl); setTq(pl.name); } };
+  const clearRoutes = (key) => setNav((n) => ({ ...n, [key]: null, [key + 'Place']: null, routes: [], sel: 0 }));
   const swap = () => { setNav((n) => ({ ...n, from: n.to, to: n.from, routes: computeRoutes(n.to, n.from), sel: 0 })); setFq(tq); setTq(fq); };
   const shareRoute = (r) => {
     const t = 'Bearline: ' + ST[r.from].name + ' ' + tr('to') + ' ' + ST[r.to].name + ', ' + r.minutes + ' ' + tr('min') + '. ' + r.legs.map((l) => l.line + ' ' + tr('towards') + ' ' + l.toward + ' (' + cnt('stop', l.stops) + ')').join(' > ') + '.';
@@ -124,7 +142,7 @@ export default function App() {
     try {
       const p = await getPositionOnce(); const n = nearestStation(p.lat, p.lng);
       if (n.km > 6) { say(tr('noStation6')); return; }
-      setFrom(n.st); say(tr('nearest') + ' ' + n.st.name + ' (' + fmtDist(n.km) + ')');
+      setFrom(n.st, { me: true, name: tr('yourLocation'), lat: p.lat, lng: p.lng }); say(tr('nearest') + ' ' + n.st.name + ' (' + fmtDist(n.km) + ')');
     } catch (err) { say(err && err.code === 1 ? tr('locDenied') : tr('gpsFail')); }
   };
   const toggleLocate = () => {
@@ -149,6 +167,7 @@ export default function App() {
   };
 
   const endNav = () => {
+    if (shareRef.current) { const sh = shareRef.current; sendPos(sh, true).finally(() => stopShare(true)); }
     const L = live.current; L.on = false; L.phase = 'idle';
     ov.current = null; eng.current.overlay = null; resetView(); setMode('idle'); setPaused(false); setFinished(false);
     keepAwake(false);
@@ -179,10 +198,13 @@ export default function App() {
           L.gpsIdx = Math.min(last, L.gpsIdx + (g0.stops / Math.max(60, g0.rideMin * 60)) * dt); est = true;
         }
         L.p += (L.gpsIdx - L.p) * Math.min(1, dt * 2.5); L.target = L.p;
+        const nowMs = Date.now(); L.hist = L.hist || []; L.hist.push([nowMs, L.gpsIdx]); while (L.hist.length && nowMs - L.hist[0][0] > 30000) L.hist.shift();
+        const h0 = L.hist[0], moving = L.fix && (L.fix.speed == null || L.fix.speed > 0.8);
+        if (nowMs - h0[0] > 12000 && L.offKm < 0.35 && moving) { const dI = L.gpsIdx - h0[1]; L.dir = dI < -0.3 ? 'bad' : dI > 0.12 ? 'ok' : null; } else if (!moving) L.dir = null;
       } else {
         if (L.adv != null) { L.p = L.target = Math.min(last, L.adv); L.adv = null; L.play = false; setPaused(true); }
         if (L.play && L.target < last && Math.abs(L.p - L.target) < 0.001) L.target = Math.min(last, Math.floor(L.p + 0.0001) + 1);
-        const spd = Math.abs(L.target - L.p) > 1.2 ? 2.6 : 0.45;
+        const spd = (Math.abs(L.target - L.p) > 1.2 ? 2.6 : 0.9) * (L.mult || 1);
         if (L.p < L.target) L.p = Math.min(L.target, L.p + spd * dt);
       }
       o.marker = L.p;
@@ -202,11 +224,11 @@ export default function App() {
         title = lg.line + ' ' + tr('towards') + ' ' + lg.toward;
         sub = left <= 1 ? (lastLeg ? tr('getOff', { end: endSt.name }) : tr('getOffChange', { end: endSt.name, line: nl.line, toward: nl.toward })) : tr('nextLine', { next: nextSt.name, d: dNext, n: left, end: endSt.name });
         hud = tr('nextHud', { next: nextSt.name });
-        if (left <= 1 && L.alerted !== 'leg' + li) { L.alerted = 'leg' + li; if (storeRef.current.haptics) haptic([180, 90, 180]); }
+        if (left <= 1 && L.alerted !== 'leg' + li) { L.alerted = 'leg' + li; if (storeRef.current.haptics) haptic([180, 90, 180]); if (gps) beep(); }
         if (left > 1 && L.alerted === 'leg' + li) L.alerted = '';
       }
       if (gps && L.fix && L.offSince && Date.now() - L.offSince > 5000 && !fin) off = { atStart: L.gpsIdx < 0.4, m: Math.round(L.offKm * 1000), name: ST[o.path.pts[0].st].name };
-      pushInfo({ lines: [lg.line], title, sub, pct: Math.round(100 * p / last), hud, intro: null, off, est });
+      pushInfo({ lines: [lg.line], title, sub, pct: Math.round(100 * p / last), hud, intro: null, off, est, dir: gps ? L.dir || null : null, alert: !fin && left <= 1 ? endSt.name : null });
       if (L.leg !== li) { L.leg = li; if (real.current) real.current.setLeg(o, li); }
       if (viewRef.current === 'generic' && scene.current) scene.current.render(o, p);
     }
@@ -215,6 +237,12 @@ export default function App() {
     requestAnimationFrame(tick);
   }, []);
 
+  const beginGps = async (r) => {
+    const sA = ST[r.legs[0].stations[0]]; let pos = nav.fromPlace && !nav.fromPlace.me ? nav.fromPlace : null;
+    try { const f = trk.current.last || await getPositionOnce(); pos = { lat: f.lat, lng: f.lng }; } catch (e) { /* no position */ }
+    if (pos && meters(pos, sA) > 220) { setStartOffer(null); setModal(null); setPage('pMap'); setWalk({ from: pos, to: { lat: sA.lat, lng: sA.lng, name: sA.name }, title: tr('walkToStation', { st: sA.name }), route: r }); return; }
+    startNav(r, 'gps');
+  };
   const startNav = (r, src) => {
     remember(r); const o = makeOverlay(r); o.reveal = r.legs.map(() => 0); ov.current = o; eng.current.overlay = o;
     const L = live.current; Object.assign(L, { on: true, phase: 'intro', source: src, p: 0, target: 0, play: true, follow: true, t0: performance.now(), last: 0, adv: null, gpsIdx: 0, offKm: 0, offSince: 0, lastFixAt: 0, alerted: '', leg: -1, done: false });
@@ -288,6 +316,8 @@ export default function App() {
       if (q.lang) setStore((o) => ({ ...o, lang: q.lang }));
       if (q.home) setStore((o) => ({ ...o, home: q.home, work: q.work || '', fav: q.fav ? q.fav.split('|') : o.fav }));
       if (q.nosplash) setBooted(true);
+      if (q.net) setNet(q.net);
+      if (q.walk) { const [a, b, c, d] = q.walk.split(',').map(Number); setPage('pMap'); setWalk({ from: { lat: a, lng: b }, to: { lat: c, lng: d, name: 'Test place' }, title: 'Test place' }); }
       if (q.when) setWhen({ mode: q.when, ts: Date.now() + (+q.wm || 30) * 60000 });
       if (q.p) setPage(q.p);
     }, 60);
@@ -299,7 +329,50 @@ export default function App() {
   const sel = selected >= 0 ? ST[selected] : null;
   const isFav = !!(sel && store.fav.indexOf(sel.name) >= 0);
   const gpsNav = mode === 'live' || mode === 'intro';
-  const openModal = (k) => { if (k === 'share') { const t = 'Bearline: ' + tr('tagline'); if (navigator.share) navigator.share({ text: t }).catch(() => {}); else say(tr('shareNA')); return; } setModal(k); };
+  const openModal = (k) => { if (k === 'trip') { shareTrip(); return; } if (k === 'share') { const t = 'Bearline: ' + tr('tagline'); if (navigator.share) navigator.share({ text: t }).catch(() => {}); else say(tr('shareNA')); return; } setModal(k); };
+  const nearName = (() => { try { const f = live.current.fix || trk.current.last; return f ? nearestStation(f.lat, f.lng).st.name : ''; } catch (e) { return ''; } })();
+  const assistGo = (f, t) => {
+    if (f) { if (f.place) pickPlace('from', f.place); else setFrom(f.st); }
+    if (t.place) pickPlace('to', t.place); else setTo(t.st);
+    setModal(null); setPage('pNav');
+  };
+  const sendPos = async (sh, ended) => {
+    const f = live.current.fix || trk.current.last;
+    if (!f && !ended) return;
+    const last = sh.last;
+    if (!ended && last && meters(last, f) < 25 && Date.now() - last.t < 120000) return;
+    try {
+      await fetch(SHARE_API + '/api/trip/' + sh.id, { method: 'PUT', headers: { 'content-type': 'application/json', 'x-key': sh.key }, body: JSON.stringify({ lat: f && f.lat, lng: f && f.lng, acc: f && f.acc, label: sh.label, ended: !!ended }) });
+      if (f) sh.last = { lat: f.lat, lng: f.lng, t: Date.now() };
+    } catch (e) { /* offline, try again next tick */ }
+  };
+  const stopShare = (silent) => {
+    const sh = shareRef.current; if (!sh) return;
+    fetch(SHARE_API + '/api/trip/' + sh.id, { method: 'DELETE', headers: { 'x-key': sh.key } }).catch(() => {});
+    shareRef.current = null; setShare(null); try { localStorage.removeItem('bl_share'); } catch (e) { /* ignore */ }
+    if (!silent) say(tr('shareLiveOff'));
+  };
+  const startShare = async () => {
+    const r = nav.routes && nav.routes[nav.sel || 0];
+    try {
+      const j = await (await fetch(SHARE_API + '/api/trip', { method: 'POST' })).json(); if (!j.id) throw new Error('x');
+      const sh = { id: j.id, key: j.key, url: SHARE_API + '/t/' + j.id, label: r ? ST[r.from].name + ' > ' + ST[r.to].name : 'Bearline', last: null };
+      shareRef.current = sh; setShare(sh); try { localStorage.setItem('bl_share', JSON.stringify({ id: sh.id, key: sh.key, t: Date.now() })); } catch (e) { /* ignore */ }
+      sendPos(sh);
+      const t = tr('shareLiveText') + ' ' + sh.url;
+      if (navigator.share) navigator.share({ text: t, url: sh.url }).catch(() => {}); else if (navigator.clipboard) navigator.clipboard.writeText(t).then(() => say(tr('routeCopied')), () => {});
+    } catch (e) { say(tr('shareLiveFail')); }
+  };
+  const shareTrip = () => {
+    if (SHARE_API) { if (shareRef.current) { const u = shareRef.current.url; if (navigator.share) navigator.share({ text: tr('shareLiveText') + ' ' + u, url: u }).catch(() => {}); return; } startShare(); return; }
+    const r = nav.routes && nav.routes[nav.sel || 0], f = live.current.fix || trk.current.last;
+    const base = 'https://nvrmr098.github.io/Navigation_App_Berlin/';
+    let t = 'Bearline';
+    if (r) t += ': ' + ST[r.from].name + ' ' + tr('to') + ' ' + ST[r.to].name + ', ' + r.minutes + ' ' + tr('min') + '.\n' + base + '#nosplash=1&from=' + encodeURIComponent(ST[r.from].name) + '&to=' + encodeURIComponent(ST[r.to].name);
+    if (f) t += '\n' + tr('shareNow') + ': https://www.openstreetmap.org/?mlat=' + f.lat.toFixed(5) + '&mlon=' + f.lng.toFixed(5) + '#map=17/' + f.lat.toFixed(5) + '/' + f.lng.toFixed(5);
+    if (!r && !f) { say(tr('tkNoRoute')); return; }
+    if (navigator.share) navigator.share({ text: t }).catch(() => {}); else if (navigator.clipboard) navigator.clipboard.writeText(t).then(() => say(tr('routeCopied')), () => say(tr('shareNA'))); else say(tr('shareNA'));
+  };
   const openBoard = (name) => { setBoardName(name); setStartOffer(null); setModal('board'); };
   const setDest = (name) => { const s = R.byName(name); if (s) { setTo(s); setPage('pNav'); } };
   const toggleFavSel = () => { const nme = sel.name, has = store.fav.indexOf(nme) >= 0; setStore((s) => ({ ...s, fav: has ? s.fav.filter((x) => x !== nme) : [nme, ...s.fav] })); say(has ? tr('favRemoved') : tr('favAdded')); };
@@ -319,22 +392,34 @@ export default function App() {
         <canvas id="gl" ref={glRef} style={{ display: view === 'generic' ? 'block' : 'none' }} />
         <div id="real" ref={realDiv} style={{ display: view === 'real' || loading3d ? 'block' : 'none', visibility: view === 'real' ? 'visible' : 'hidden' }} />
 
+        {net !== 'rail' && (
+          <React.Suspense fallback={null}>
+            <ModeMap kind={net} dark={document.body.classList.contains('dark')} lang={store.lang} onBoard={openBoard} />
+          </React.Suspense>
+        )}
         <div id="top" className={navActive ? 'hide' : ''}>
-          <div className="sbox">
-            <Ico n="search" className="ic" />
-            <SearchBox value={mq} onChange={setMq} store={store} ddTop={58} placeholder={tr('searchStation')}
-              onPick={(s) => { setMq(s.name); filterFor(s); selectStation(s.i, true); }} />
-            {mq && <button className="clr" aria-label={tr('clear')} onClick={() => setMq('')}><Ico n="close" /></button>}
-          </div>
+          {net === 'rail' && (
+            <div className="sbox">
+              <Ico n="search" className="ic" />
+              <SearchBox value={mq} onChange={setMq} store={store} ddTop={58} placeholder={tr('searchStation')}
+                onPick={(s) => { setMq(s.name); filterFor(s); selectStation(s.i, true); }} />
+              {mq && <button className="clr" aria-label={tr('clear')} onClick={() => setMq('')}><Ico n="close" /></button>}
+            </div>
+          )}
           <div className="trow">
+            <div className="seg glass netseg">
+              {[['rail', 'netRail'], ['tram', 'netTram'], ['bus', 'netBus'], ['re', 'netRe']].map((n) => <button key={n[0]} className={net === n[0] ? 'on' : ''} onClick={() => { setNet(n[0]); setSelected(-1); }}>{tr(n[1])}</button>)}
+            </div>
+            <BerlinClock lang={store.lang} />
+          </div>
+          {net === 'rail' && (
             <div className="seg glass" id="filters">
               <button className={filter === 'both' ? 'on' : ''} onClick={() => setFilter('both')}>S + U</button>
               <button className={filter === 'S' ? 'on' : ''} onClick={() => setFilter('S')}><span className="bdg S" style={{ background: '#3d9a4a' }}>S</span><span className="fl">S-Bahn</span></button>
               <button className={filter === 'U' ? 'on' : ''} onClick={() => setFilter('U')}><span className="bdg U" style={{ background: '#1670b8' }}>U</span><span className="fl">U-Bahn</span></button>
             </div>
-            <BerlinClock lang={store.lang} />
-          </div>
-          {mineChips.length > 0 && (
+          )}
+          {net === 'rail' && mineChips.length > 0 && (
             <div className="pinrow">
               {mineChips.map((m) => <button key={m[0] + m[1]} className="chip glass" onClick={() => { const s = R.byName(m[1]); if (s) { filterFor(s); selectStation(s.i, true); } }}><Ico n={m[0]} className="s" />{m[1]}</button>)}
             </div>
@@ -351,6 +436,15 @@ export default function App() {
         {gpsNav && (
           <div className={'gpschip glass ' + (source === 'gps' ? (info.est ? 'weak' : gpsStatus) : 'demo')}><i />{source === 'gps' ? (info.est ? tr('noGpsEst') : tr('chip_' + gpsStatus)) : tr('demoRide')}</div>
         )}
+        {share && (
+          <div className="sharebar glass"><span className="rdot" /><span>{tr('shareLiveOn')}</span><button onClick={() => { sendPos(shareRef.current, true).finally(() => stopShare()); }}>{tr('shareLiveStop')}</button></div>
+        )}
+        {mode === 'live' && info.alert && (
+          <div className="offbanner glass"><Ico n="bell" /><span>{tr('getoffBanner', { st: info.alert })}</span></div>
+        )}
+        {mode === 'live' && info.dir && !info.off && (
+          <div className={'dirchip ' + info.dir}><Ico n={info.dir === 'ok' ? 'check' : 'uturn'} /><span>{info.dir === 'ok' ? tr('dirOk') : tr('dirBadTrain')}</span></div>
+        )}
         {loading3d && <div className="loading3d glass"><span className="spin" />{tr('loading3d')}</div>}
 
         {info.off && mode === 'live' && (
@@ -361,14 +455,14 @@ export default function App() {
           </div>
         )}
 
-        {!navActive && (
+        {!navActive && net === 'rail' && (
           <div id="legend" className="glass">
             {filter !== 'U' && <span><i />S-Bahn</span>}
             {filter !== 'S' && <span><i className="u" />U-Bahn</span>}
           </div>
         )}
 
-        <div id="fabs" style={sel ? { bottom: 'calc(var(--dock) + 296px)' } : navActive ? { bottom: 'calc(var(--dock) + 100px)' } : undefined}>
+        <div id="fabs" hidden={net !== 'rail'} style={sel ? { bottom: 'calc(var(--dock) + 296px)' } : navActive ? { bottom: 'calc(var(--dock) + 100px)' } : undefined}>
           {mode === 'live' && <button className="fab glass lg" aria-label="2D / 3D" onClick={() => toggle3d()}><Ico n={view === '2d' ? 'cube' : 'flat'} />{view === '2d' ? '3D' : '2D'}</button>}
           {!navActive && <button className={'fab glass' + (locateOn ? ' on' : '')} aria-label={tr('myLocation')} onClick={toggleLocate}><Ico n="locate" /></button>}
           {view === '2d' && <button className="fab glass" aria-label="+" onClick={() => { live.current.follow = false; eng.current.zoomBy(1.5); }}>+</button>}
@@ -381,16 +475,21 @@ export default function App() {
         )}
         {mode === 'live' && !info.off && <div id="hud"><span>{info.hud}</span></div>}
 
+        {mode === 'live' && finished && source === 'gps' && nav.toPlace && (
+          <button className="btn endwalk" onClick={() => { const f = live.current.fix, o = ov.current, sB = ST[o.route.to]; setWalk({ from: f ? { lat: f.lat, lng: f.lng } : { lat: sB.lat, lng: sB.lng }, to: nav.toPlace, title: nav.toPlace.name }); }}><Ico n="walk" />{tr('walkTo2s', { place: nav.toPlace.name })}</button>
+        )}
         {(mode === 'live' || mode === 'show') && (
           <div id="navctl">
             {mode === 'live' && source === 'demo' && <button className="btn alt" onClick={onPlay}><Ico n={finished || paused ? 'play' : 'pause'} />{finished ? tr('replay') : paused ? tr('resume') : tr('pause')}</button>}
+            {mode === 'live' && source === 'demo' && <button className="btn alt sq2" aria-label="Speed" onClick={() => setMult((m) => (m >= 4 ? 1 : m * 2))}>{mult}x</button>}
             {mode === 'live' && source === 'demo' && <button className="btn" onClick={onNext}><Ico n="next" />{tr('nextShort')}</button>}
+            {mode === 'live' && source === 'gps' && <button className="btn alt sq2" aria-label={tr('shareTrip')} onClick={shareTrip}><Ico n="share" /></button>}
             {mode === 'live' && source === 'gps' && <button className="btn" onClick={onRecenter}><Ico n="locate" />{tr('recenter')}</button>}
             <button className="btn alt" style={mode === 'show' ? { flex: 1 } : undefined} onClick={endNav}><Ico n="close" />{mode === 'show' ? tr('closeRoute') : tr('end')}</button>
           </div>
         )}
 
-        <div className={'sheet glass' + (sel && !navActive ? ' on' : '')}>
+        <div className={'sheet glass' + (sel && !navActive && net === 'rail' ? ' on' : '')}>
           <button className="x" aria-label={tr('close')} onClick={() => setSelected(-1)}><Ico n="close" /></button>
           <h3>{sel ? sel.name : ''}</h3>
           <div className="row">{sel && sel.lines.map((l) => <Badge key={l} line={l} />)}</div>
@@ -409,8 +508,8 @@ export default function App() {
 
       <NavPage on={page === 'pNav'} nav={nav} fq={fq} tq={tq} store={store} when={when}
         setFq={(v) => { setFq(v); if (nav.from) clearRoutes('from'); }} setTq={(v) => { setTq(v); if (nav.to) clearRoutes('to'); }}
-        onPickFrom={(s) => { setFrom(s); if (!navRef.current.to) setTimeout(() => document.querySelectorAll('#pNav .fld input')[1]?.focus(), 60); }} onPickTo={setTo}
-        onSwap={swap} onSelect={(i) => setNav((n) => ({ ...n, sel: i }))} onShow={showOnMap} onStart={(r) => setStartOffer(r)} onShare={shareRoute}
+        onPickFrom={(s) => { if (s.place) { pickPlace('from', s); return; } setFrom(s); if (!navRef.current.to) setTimeout(() => document.querySelectorAll('#pNav .fld input')[1]?.focus(), 60); }} onPickTo={(s) => (s.place ? pickPlace('to', s) : setTo(s))}
+        onSwap={swap} onSelect={(i) => setNav((n) => ({ ...n, sel: i }))} onShow={showOnMap} onStart={(r) => setStartOffer(r)} onShare={shareRoute} onModal={setModal}
         onTime={() => setModal('time')} onBoard={openBoard} onPlaces={() => setModal('places')} onSetDest={setDest}
         onChipStation={(name) => { const s = R.byName(name); if (!nav.from) setFrom(s); else setTo(s); }}
         onChipTrip={(r) => { const a = R.byName(r[0]), b = R.byName(r[1]); setNav({ from: a, to: b, routes: R.routes(a.i, b.i), sel: 0 }); setFq(a.name); setTq(b.name); }}
@@ -431,8 +530,8 @@ export default function App() {
         <div className="box">
           <div className="grab" />
           {startOffer
-            ? <StartSheet route={startOffer} onGps={() => startNav(startOffer, 'gps')} onDemo={() => startNav(startOffer, 'demo')} />
-            : <ModalContent kind={modal} store={store} setStore={setStore} board={boardName} when={when} say={say}
+            ? <StartSheet route={startOffer} onGps={() => beginGps(startOffer)} onDemo={() => startNav(startOffer, 'demo')} />
+            : <ModalContent kind={modal} store={store} setStore={setStore} board={boardName} when={when} say={say} nav={nav} stNames={[nav.from && nav.from.name, nav.to && nav.to.name, nearName].filter((x, i, a) => x && a.indexOf(x) === i)} onAssist={assistGo}
               onFav={(n) => { closeModal(); setPage('pMap'); const s = R.byName(n); if (s) { filterFor(s); selectStation(s.i, true); } }}
               onLang={(id) => { setStore((o) => ({ ...o, lang: id })); closeModal(); }}
               onApplyTime={(w) => { setWhen(w); closeModal(); }}
@@ -441,6 +540,12 @@ export default function App() {
         </div>
       </div>
       {toast && <div className="toast">{toast}</div>}
+      {walk && (
+        <React.Suspense fallback={null}>
+          <WalkView key={walk.title} from={walk.from} to={walk.to} title={walk.title} dark={document.body.classList.contains('dark')}
+            onClose={() => setWalk(null)} onArrive={() => { const w = walk; setWalk(null); if (w.route) startNav(w.route, 'gps'); }} />
+        </React.Suspense>
+      )}
       {!booted && <Splash onDone={() => setBooted(true)} />}
     </div>
   );

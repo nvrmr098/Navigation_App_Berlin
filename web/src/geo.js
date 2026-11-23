@@ -100,3 +100,12 @@ export function getPositionOnce() {
       (e) => reject(e), { enableHighAccuracy: true, timeout: 12000, maximumAge: 5000 });
   });
 }
+
+/* short double beep for the get-off alert (works after the first tap on the page) */
+export function beep() {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+    const c = new AC(); [0, 0.28].forEach((t) => { const o = c.createOscillator(), g = c.createGain(); o.frequency.value = 880; o.connect(g); g.connect(c.destination); g.gain.setValueAtTime(0.0001, c.currentTime + t); g.gain.exponentialRampToValueAtTime(0.4, c.currentTime + t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + t + 0.22); o.start(c.currentTime + t); o.stop(c.currentTime + t + 0.25); });
+    setTimeout(() => { try { c.close(); } catch (e) { /* closed */ } }, 900);
+  } catch (e) { /* no audio */ }
+}

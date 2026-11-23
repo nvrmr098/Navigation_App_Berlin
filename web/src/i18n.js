@@ -1,13 +1,23 @@
-/* Bearline translations: English (default), German, Spanish, Italian, French.
+/* Bearline translations: English (default), German, Spanish, Italian, French, Hindi, Punjabi, Chinese, Korean.
  * Add a key to EN first; missing keys in other languages fall back to English. */
+import EXTRA from './i18n-extra.js';
+import HI from './lang-hi.js';
+import PA from './lang-pa.js';
+import ZH from './lang-zh.js';
+import KO from './lang-ko.js';
+
 export const LANGS = [
   { id: 'en', name: 'English', en: 'English' },
   { id: 'de', name: 'Deutsch', en: 'German' },
   { id: 'es', name: 'Español', en: 'Spanish' },
   { id: 'it', name: 'Italiano', en: 'Italian' },
   { id: 'fr', name: 'Français', en: 'French' },
+  { id: 'hi', name: 'हिन्दी', en: 'Hindi' },
+  { id: 'pa', name: 'ਪੰਜਾਬੀ', en: 'Punjabi' },
+  { id: 'zh', name: '简体中文', en: 'Chinese' },
+  { id: 'ko', name: '한국어', en: 'Korean' },
 ];
-const LOCALE = { en: 'en-GB', de: 'de-DE', es: 'es-ES', it: 'it-IT', fr: 'fr-FR' };
+const LOCALE = { en: 'en-GB', de: 'de-DE', es: 'es-ES', it: 'it-IT', fr: 'fr-FR', hi: 'hi-IN', pa: 'pa-IN', zh: 'zh-CN', ko: 'ko-KR' };
 
 const EN = {
   about: 'About and data credits', aboutP1: 'A simplified S-Bahn and U-Bahn map with route finding, live departures and GPS navigation for newcomers to Berlin.', aboutTitle: 'About Bearline',
@@ -47,13 +57,24 @@ const EN = {
   searchingGps: 'Searching for GPS...', serviceUpdates: 'Live service updates', set: 'Set', setHome: 'Set Home', setWork: 'Set Work', share: 'Share', shareApp: 'Share this app', shareNA: 'Sharing not available here',
   showAll: 'Show all', showLess: 'Show less', simple3dOff: 'Simple 3D (real city is off in settings)', simple3dOffline: 'Offline: showing simple 3D', since: 'Since', soon: 'Soon',
   splash1: 'Loading network', splash2: 'Syncing 310 stations', splash3: 'Calibrating GPS', splash4: 'Ready', start: 'Start', startAt: 'Start at', startNav: 'Start navigation', startStation: 'Start station',
-  stepFree: 'Step-free routes', stepFreeMsg: 'Step-free routing is planned for a later version', stepFreeSub: 'Elevator aware routing (coming soon)', stop1: '1 stop', stopN: '{n} stops',
+  stepFree: 'Step-free routes', stepFreeMsg: 'Step-free is used in Alternatives', stepFreeSub: 'Used by default in Alternatives', stop1: '1 stop', stopN: '{n} stops',
   swap: 'Swap start and destination', tagline: 'Berlin S+U made simple', take: 'Take', tapFind: 'Tap Refresh to find stations', theme_auto: 'Auto', theme_light: 'Light', theme_dark: 'Dark', then: 'Then',
   ticP1: 'Berlin public transport uses three fare zones.', ticP2: 'One ticket works on S-Bahn, U-Bahn, tram, bus and the regional ferries within its zones. Tickets must be validated before the first ride unless bought as an app or mobile ticket.',
   ticP3: 'Always check current prices on the official BVG or VBB pages. Ticket sales inside this app may follow later.', tickets: 'Tickets and zones', ticketsBuy: 'Tickets', ticketsBuySub: 'Buy tickets in the app',
   timeNote: 'Berlin time. Now:', to: 'to', today: 'Today', tomorrow: 'Tomorrow', towards: 'towards', unpin: 'Remove from favourites', until: 'until', updated: 'Updated', useMyLocation: 'Use my location',
   version: 'Version', voice: 'Voice assistant', voiceSub: 'Hands free trip help', whenTitle: 'When do you travel?', whereTo: 'Where to?', wholeNetwork: 'Show whole network', work: 'Work', yourRoute: 'Your route',
   zone: 'Zone', zoneA: 'Inside the S-Bahn ring and a bit beyond', zoneB: 'The rest of Berlin up to the city border', zoneC: 'Potsdam and the surrounding area, BER airport', zonesSub: 'A, B, C explained',
+  netRail: 'S+U', netTram: 'Tram', netBus: 'Bus', netRe: 'RE', lineSearch: 'Line, e.g. M10 or 142',
+  modeCredit: 'Unofficial map. Data: VBB open data (CC BY 3.0).',
+  tkTitle: 'Ticket helper', tkSub: 'Zones and the ticket you need', tkNeed: 'You probably need', tkZones: 'Zones on this trip (estimate)', tkNote: 'Zones are estimated from distance to the city centre. Check the official fare finder before you buy.', tkOpen: 'Open BVG tickets', tkNoRoute: 'Pick a start and a destination in Navigate first.',
+  shTitle: 'Station help', shSub: 'Platforms, lifts and toilets', shPlatforms: 'Platforms (live)', shNoPlat: 'No live platform info right now', shLifts: 'Lifts nearby', shToilets: 'Toilets nearby', shNone: 'None found within 250 m', shChecking: 'Checking...', shOsm: 'Open in OpenStreetMap', shCred: 'Lift and toilet data from OpenStreetMap contributors (ODbL), platforms from VBB.',
+  alTitle: 'Alternatives', alSub: 'Other routes, also step-free', alSfSub: 'Only routes without stairs', alLoading: 'Asking VBB...', alNone: 'No live routes found', alDisr: 'Disruption reported on this route',
+  nightTitle: 'Night and weekend', nightSub: 'Last trains and night lines', nightAfter: 'Departures after 01:00', nightNone: 'No night departures found', nightLines: 'Night buses and trams', nightNote: 'On Friday and Saturday nights most U-Bahn lines and many S-Bahn lines run all night. Check the live board for the exact times.',
+  asTitle: 'Voice assistant', asSub: 'Say where you want to go', asHint: 'Say or type, for example: to Alexanderplatz, or from Zoologischer Garten to Potsdamer Platz.', asPh: 'Where to?', asMic: 'Speak', asGo: 'Set route', asBusy: 'Looking...', asListen: 'Listening...', asNoMic: 'Voice input is not available here, please type.', asNotFound: 'I did not find that place', asDone: 'Route set to', asNote: 'This works with simple commands. It does not use a cloud AI.',
+  shareTrip: 'Share trip', shareTripSub: 'Route and your position as a link', shareNow: 'My position now', getoffBanner: 'Get off at {st}', offlineBanner: 'Offline, showing saved data',
+  shareLiveOn: 'Sharing live location', shareLiveStop: 'Stop', shareLiveOff: 'Live sharing stopped', shareLiveFail: 'Could not start live sharing', shareLiveText: 'Follow my trip live:',
+  places: 'Places', yourLocation: 'Your location', walkTo: 'Walk to', walkEst: 'Estimate, no street data', dirOk: 'Right direction', dirBad: 'Wrong way, turn around', dirTurn: 'Adjust your direction', dirBadTrain: 'Wrong direction, check your train', imHere: 'I am here',
+  walkToStation: '{st} station', walkFrom: 'Walk {m} min ({d}) from {place} to {st}', walkTo2: 'Walk {m} min ({d}) to {place}', walkTo2s: 'Walk to {place}',
   fastest: 'Fastest', fewest: 'Fewer changes', front: 'front', middle: 'middle', rear: 'rear',
   tipSame: 'Same platform, just step across to the {b}.',
   tipRide: 'Ride in the {f} of the {a}, closest to your change. Then wait at the {t} of the platform for the {b}.',
@@ -259,7 +280,7 @@ const FR = {
   tipRide: 'Montez dans la {f} du train {a}, au plus près de votre correspondance. Attendez ensuite dans la {t} du quai le train {b}.',
 };
 
-const DICT = { en: EN, de: DE, es: ES, it: IT, fr: FR };
+const DICT = { en: EN, de: { ...DE, ...EXTRA.de }, es: { ...ES, ...EXTRA.es }, it: { ...IT, ...EXTRA.it }, fr: { ...FR, ...EXTRA.fr }, hi: HI, pa: PA, zh: ZH, ko: KO };
 let cur = 'en';
 try { const s = JSON.parse(localStorage.getItem('bl1') || '{}'); if (s.lang && DICT[s.lang]) cur = s.lang; } catch (e) { /* ignore */ }
 

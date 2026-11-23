@@ -14,7 +14,8 @@ async function getJson(path, ttl) {
   const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 9000);
   const p = fetch(url, { signal: ctl.signal, headers: { Accept: 'application/json' } })
     .then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-    .then((d) => { cache.set(url, { t: Date.now(), data: d }); return d; })
+    .then((d) => { cache.set(url, { t: Date.now(), data: d }); try { if (path.indexOf('/journeys') < 0) localStorage.setItem('bl_c:' + path.slice(0, 180), JSON.stringify({ t: Date.now(), d })); } catch (e) { /* storage full */ } return d; })
+    .catch((err) => { try { const o = JSON.parse(localStorage.getItem('bl_c:' + path.slice(0, 180)) || 'null'); if (o && Date.now() - o.t < 24 * 3600 * 1000) { cache.set(url, { t: Date.now() - ttl + 5000, data: o.d }); return o.d; } } catch (e2) { /* none */ } throw err; })
     .finally(() => { clearTimeout(timer); inflight.delete(url); });
   inflight.set(url, p);
   return p;
@@ -121,3 +122,23 @@ export async function disruptions() {
   return { items: out, cancelled, at: Date.now() };
 }
 
+
+/* whole journeys between two stations (used for alternatives and step-free routes) */
+export async function journeys(fromName, toName, o) {
+  const [a, b] = await Promise.all([stationId(fromName), stationId(toName)]);
+  let q = '/journeys?from=' + a + '&to=' + b + '&results=' + ((o && o.results) || 4) + '&stopovers=false&remarks=true&language=' + getLang();
+  if (o && o.stepFree) q += '&accessibility=complete';
+  if (o && o.when) q += '&departure=' + encodeURIComponent(new Date(o.when).toISOString());
+  const d = await getJson(q, 30000);
+  return ((d && d.journeys) || []).map((j) => {
+    const legs = (j.legs || []).map((l) => ({
+      walk: !!l.walking, line: l.line ? String(l.line.name || '').replace(/\s+/g, '') : '', product: l.line && l.line.product,
+      from: cleanName(l.origin && l.origin.name), to: cleanName(l.destination && l.destination.name),
+      dep: Date.parse(l.departure || l.plannedDeparture || ''), arr: Date.parse(l.arrival || l.plannedArrival || ''),
+      delay: typeof l.departureDelay === 'number' ? Math.round(l.departureDelay / 60) : 0, cancelled: !!l.cancelled,
+      dist: l.distance || 0, dir: cleanName(l.direction || ''),
+    }));
+    const warn = (j.remarks || []).some((r) => r.type === 'warning' || r.type === 'status' && /stör|ausfall|sperr|disrupt|cancel|closure/i.test(r.summary || r.text || '')) || legs.some((l) => l.cancelled);
+    return { legs, dep: legs.length ? legs[0].dep : 0, arr: legs.length ? legs[legs.length - 1].arr : 0, warn };
+  }).filter((j) => j.legs.length);
+}
