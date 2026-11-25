@@ -1,14 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { changeTip } from './carriage.js';
+import { CoachGuide } from './coach.jsx';
 import { meters, walkMin } from './walk.js';
 import { loadStops } from './modestops.js';
 import { TicketHelper, StationHelp, Alternatives, NightInfo, Assistant } from './extras.jsx';
 import { POPULAR } from './popular.js';
+import { VOICE_ASSISTANT } from './config.js';
 import { R, ST, NET } from './net.js';
-import { Badge, Badges, SearchBox, Ico, Logo, LineTag } from './ui.jsx';
+import { Badge, Badges, SearchBox, Ico, Logo, LineTag, BackBtn } from './ui.jsx';
 import { tr, cnt, fmtTime, fmtDay, LANGS } from './i18n.js';
 import { useBoard, MiniBoard, NextTrains, StationBoard, useDisruptions } from './live-ui.jsx';
-import { pickTrains } from './live.js';
+import { pickTrains, PROD_GROUPS } from './live.js';
 import { berlinParts, berlinMs, dayOffsetMs, pad } from './time.js';
 import { distKm, getPositionOnce } from './geo.js';
 
@@ -70,7 +72,7 @@ function RouteCard({ fromPlace, toPlace, onModal, r, i, sel, when, onSelect, onS
               return (
                 <React.Fragment key={li}>
                   <li style={{ '--c': lg.c }}><span className="pin" /><b>{li === 0 ? tr('startAt') : tr('changeAt')} {a.name}</b>
-                    {li > 0 && tips[li] && <small className="tip"><Ico n="bulb" /><span>{tips[li].text}</span></small>}
+                    {li > 0 && tips[li] && (tips[li].ride ? <CoachGuide pos={tips[li].ride} toward={r.legs[li - 1].toward} color={r.legs[li - 1].c} /> : <small className="tip"><Ico n="bulb" /><span>{tips[li].text}</span></small>)}
                     <small><Badge line={lg.line} /> {tr('towards')} {lg.toward} &middot; {cnt('stop', lg.stops)} &middot; {Math.round(lg.rideMin)} {tr('min')}</small>
                   </li>
                   {li === r.legs.length - 1 && <li style={{ '--c': '#ef4455' }}><span className="pin" /><b>{tr('arriveAt')} {b.name}</b></li>}
@@ -81,11 +83,10 @@ function RouteCard({ fromPlace, toPlace, onModal, r, i, sel, when, onSelect, onS
           </ul>
           {st.state === 'error' && <div className="acts" style={{ marginBottom: 8 }}><button className="btn alt sm" onClick={(e) => { e.stopPropagation(); reload(); }}><Ico n="refresh" />{tr('retry')}</button></div>}
           <div className="acts">
-            <button className="btn alt sm" onClick={(e) => { e.stopPropagation(); onShow(); }}><Ico n="map" />{tr('map')}</button>
             <button className="btn alt sm sq" aria-label={tr('alTitle')} onClick={(e) => { e.stopPropagation(); onModal('alt'); }}><Ico n="refresh" /></button>
             <button className="btn alt sm sq" aria-label={tr('tkTitle')} onClick={(e) => { e.stopPropagation(); onModal('tkt'); }}><Ico n="ticket" /></button>
             <button className="btn alt sm sq" aria-label={tr('share')} onClick={(e) => { e.stopPropagation(); onShare(); }}><Ico n="share" /></button>
-            <button className="btn sm" style={{ flex: 2 }} onClick={(e) => { e.stopPropagation(); onStart(); }}><Ico n="nav" />{tr('start')}</button>
+            <button className="btn sm" style={{ flex: 2 }} onClick={(e) => { e.stopPropagation(); onStart(); }}><Ico n="nav" />{tr('routeStart')}</button>
           </div>
         </>
       )}
@@ -93,7 +94,7 @@ function RouteCard({ fromPlace, toPlace, onModal, r, i, sel, when, onSelect, onS
   );
 }
 
-export function NavPage({ onModal, on, nav, fq, setFq, tq, setTq, store, when, onTime, onPickFrom, onPickTo, onSwap, onSelect, onShow, onStart, onShare, onChipStation, onChipTrip, onLocate, onBoard, onPlaces, onSetDest, onPickPlace }) {
+export function NavPage({ onModal, on, nav, fq, setFq, tq, setTq, store, when, onTime, onPickFrom, onPickTo, onSwap, onSelect, onShow, onStart, onShare, onChipStation, onChipTrip, onLocate, onBoard, onPlaces, onSetDest, onPickPlace, onBack, onReset, onSaveAs, onSaveCommute }) {
   const ready = nav.from && nav.to;
   const boardName = nav.from ? nav.from.name : nav.to ? nav.to.name : '';
   const mine = [];
@@ -101,7 +102,8 @@ export function NavPage({ onModal, on, nav, fq, setFq, tq, setTq, store, when, o
   if (store.work) mine.push(['work', store.work]);
   return (
     <section className={'page scroll' + (on ? ' on' : '')} id="pNav">
-      <h1><small>{tr('navSub')}</small>{tr('whereTo')}</h1>
+      <div className="pghead"><BackBtn onClick={onBack} /><h1><small>{tr('navSub')}</small>{tr('whereTo')}</h1>
+        <button className="rstbtn" aria-label={tr('reset')} onClick={onReset} disabled={!fq && !tq && when.mode === 'now'}><Ico n="refresh" /><span>{tr('reset')}</span></button></div>
       <div className="panel glass">
         <div className="fld"><span className="pin2" />
           <SearchBox value={fq} onChange={setFq} onPick={onPickFrom} placeholder={tr('startStation')} store={store} ddTop={58} places />
@@ -113,6 +115,16 @@ export function NavPage({ onModal, on, nav, fq, setFq, tq, setTq, store, when, o
         <button id="swap" aria-label={tr('swap')} onClick={onSwap}><Ico n="swap" /></button>
       </div>
 
+      {nav.to && (
+        <div className="savebar">
+          {['home', 'work'].map((k) => { const nm = nav.toPlace ? nav.toPlace.name : nav.to.name, on2 = store[k] === nm; return (
+            <button key={k} className={'chip' + (on2 ? ' on' : '')} onClick={() => onSaveAs(k)}><Ico n={k} className="s" />{on2 ? tr('savedAs', { k: tr(k) }) : tr('saveAs', { k: tr(k) })}</button>
+          ); })}
+          {nav.from && nav.to && (() => { const has = (store.commutes || []).some((c) => c[0] === nav.from.name && c[1] === nav.to.name); return (
+            <button className={'chip' + (has ? ' on' : '')} onClick={onSaveCommute}><Ico n="star" className="s" />{has ? tr('commuteSaved') : tr('commuteSave')}</button>
+          ); })()}
+        </div>
+      )}
       <div className="qrow">
         <button className={'tpill glass' + (when.mode !== 'now' ? ' set' : '')} onClick={onTime}><Ico n="clock" />{whenLabel(when)}<Ico n="down" className="dn" /></button>
         {['home', 'work'].map((k) => (
@@ -123,8 +135,10 @@ export function NavPage({ onModal, on, nav, fq, setFq, tq, setTq, store, when, o
         <button className="chip tool" onClick={() => onModal('night')}><Ico n="moon" className="s" />{tr('nightTitle')}</button>
         <button className="chip tool" onClick={() => onModal('tkt')}><Ico n="ticket" className="s" />{tr('tkTitle')}</button>
         <button className="chip tool" onClick={() => onModal('sthelp')}><Ico n="building" className="s" />{tr('shTitle')}</button>
-        <button className="chip tool" onClick={() => onModal('assistmic')}><Ico n="mic" className="s" />{tr('asTitle')}</button>
       </div>
+      {(store.commutes || []).length > 0 && (
+        <><div className="sec">{tr('commutes')}</div><div className="pins">{store.commutes.map((c) => <button key={c[0] + c[1]} className="chip" onClick={() => onChipTrip(c)}><Ico n="nav" className="s" />{c[0]} &rarr; {c[1]}</button>)}</div></>
+      )}
       {store.fav.length > 0 && (
         <div className="pins">{store.fav.map((n) => <button key={n} className="chip" onClick={() => onSetDest(n)}><Ico n="star" className="s" />{n}</button>)}</div>
       )}
@@ -135,7 +149,7 @@ export function NavPage({ onModal, on, nav, fq, setFq, tq, setTq, store, when, o
           onSelect={() => onSelect(i)} onShow={() => onShow(r)} onStart={() => onStart(r)} onShare={() => onShare(r)} />
       ))}
       {ready && nav.routes.length > 0 && <p className="note">{tr('estNote')}</p>}
-      {ready && on && <Alternatives key={nav.from.name + '>' + nav.to.name} nav={nav} store={store} inline />}
+      {ready && on && <Alternatives key={nav.from.name + '>' + nav.to.name} nav={nav} store={store} inline onStart={onStart} />}
 
       {boardName && <MiniBoard name={boardName} onMore={() => onBoard(boardName)} />}
 
@@ -154,7 +168,7 @@ export function NavPage({ onModal, on, nav, fq, setFq, tq, setTq, store, when, o
 }
 
 /* ---------- Nearby tab ---------- */
-export function NearbyPage({ on, store, setStore, onBoard, onGo, onOnMap, onGoPlace, onModeMap, onModal, say }) {
+export function NearbyPage({ on, store, setStore, onBoard, onGo, onOnMap, onGoPlace, onModeMap, onModal, say, onBack }) {
   const [pos, setPos] = useState(null);
   const [status, setStatus] = useState('idle'); // idle | asking | ok | denied | error
   const [modes, setModes] = useState({ tram: [], bus: [] });
@@ -202,7 +216,7 @@ export function NearbyPage({ on, store, setStore, onBoard, onGo, onOnMap, onGoPl
   );
   return (
     <section className={'page scroll' + (on ? ' on' : '')} id="pNear">
-      <h1><small>{tr('nearSub')}</small>{tr('nearby')}</h1>
+      <div className="pghead"><BackBtn onClick={onBack} /><h1><small>{tr('nearSub')}</small>{tr('nearby')}</h1></div>
       <div className="nhead glass">
         <span className="rad"><i /><i /><Ico n="radar" /></span>
         <div className="tx"><b>{status === 'ok' ? (far ? tr('farAway') : tr('nearFound')) : status === 'asking' ? tr('searchingGps') : status === 'denied' ? tr('locDenied') : tr('tapFind')}</b>
@@ -232,21 +246,23 @@ function Updates({ on }) {
   const [all, setAll] = useState(false);
   const [f, setF] = useState('all');
   const items = st.data ? st.data.items : [];
-  const shown = items.filter((e) => f === 'all' || e.lines.some((l) => l[0] === f) || (!e.lines.length && ((f === 'S' && e.prods.indexOf('suburban') > -1) || (f === 'U' && e.prods.indexOf('subway') > -1))));
+  const hit = (e, k) => PROD_GROUPS[k].some((p) => e.prods.indexOf(p) > -1) || (!e.prods.length && ((k === 'S' && e.lines.some((l) => /^S\d/.test(l))) || (k === 'U' && e.lines.some((l) => /^U\d/.test(l))) || (k === 'RE' && e.lines.some((l) => /^(RE|RB|FEX)/.test(l)))));
+  const shown = items.filter((e) => f === 'all' || hit(e, f));
+  const count = (k) => items.filter((e) => hit(e, k)).length;
   const list = all ? shown : shown.slice(0, 4);
   return (
     <div className="upd glass">
       <div className="uh"><Ico n="alert" /><b>{tr('serviceUpdates')}</b><span style={{ flex: 1 }} />
         <button className="lnk" onClick={reload} aria-label={tr('refresh')}><Ico n="refresh" /></button></div>
-      <div className="seg3 wide" style={{ marginBottom: 10 }}>
-        {[['all', tr('all')], ['S', 'S-Bahn'], ['U', 'U-Bahn']].map((o) => <button key={o[0]} className={f === o[0] ? 'on' : ''} onClick={() => setF(o[0])}>{o[1]}</button>)}
+      <div className="seg3 wide scrollx" style={{ marginBottom: 10 }}>
+        {[['all', tr('all')], ['S', 'S-Bahn'], ['U', 'U-Bahn'], ['tram', tr('netTram')], ['bus', tr('netBus')], ['RE', 'RE/RB']].map((o) => <button key={o[0]} className={f === o[0] ? 'on' : ''} onClick={() => setF(o[0])}>{o[1]}{o[0] !== 'all' && st.data && count(o[0]) ? <i className="cn">{count(o[0])}</i> : null}</button>)}
       </div>
       {st.state === 'loading' && <div className="bstat"><span className="spin" />{tr('loading')}</div>}
       {st.state === 'error' && <div className="bstat err"><Ico n="wifioff" /><span>{tr('liveOff')}</span><button className="btn alt sm" onClick={reload}><Ico n="refresh" />{tr('retry')}</button></div>}
       {(st.state === 'ok' || st.state === 'stale') && shown.length === 0 && <div className="allgood"><Ico n="check" />{tr('noDisruptions')}</div>}
       {list.map((e) => (
         <div className="ui" key={e.id}>
-          <div className="ul">{e.lines.length ? e.lines.slice(0, 6).map((l) => <LineTag key={l} line={l} />) : <span className="bdg" style={{ background: '#8a93aa' }}>{tr('network')}</span>}</div>
+          <div className="ul">{e.lines.length ? e.lines.slice(0, 6).map((l) => <LineTag key={l} line={l} product={e.prods.indexOf('bus') > -1 ? 'bus' : e.prods.indexOf('tram') > -1 ? 'tram' : e.prods.indexOf('regional') > -1 ? 'regional' : undefined} />) : <span className="bdg" style={{ background: '#8a93aa' }}>{tr('network')}</span>}</div>
           <b>{sevText(e)}</b>
           {e.text && e.text !== e.title && <p>{e.text.length > 240 && !all ? e.text.slice(0, 237) + '...' : e.text}</p>}
           {(e.from || e.to) && <small>{e.from ? tr('since') + ' ' + fmtDay(Date.parse(e.from)) + ' ' + fmtTime(Date.parse(e.from)) : ''}{e.to ? ' · ' + tr('until') + ' ' + fmtDay(Date.parse(e.to)) + ' ' + fmtTime(Date.parse(e.to)) : ''}</small>}
@@ -259,7 +275,7 @@ function Updates({ on }) {
   );
 }
 
-export function MorePage({ on, store, setStore, open, toast, gpsStatus }) {
+export function MorePage({ on, store, setStore, open, toast, gpsStatus, onBack }) {
   const flip = (k, msg) => () => { setStore((s) => ({ ...s, [k]: !s[k] })); if (msg) toast(msg); };
   const Row = ({ ico, title, sub, onClick, soon }) => (
     <button className="li" onClick={onClick}><span className="ico"><Ico n={ico} /></span><span className="tx">{title}{sub && <small>{sub}</small>}</span>{soon ? <span className="soon">{tr('soon')}</span> : <span className="ch"><Ico n="chevron" /></span>}</button>
@@ -270,7 +286,7 @@ export function MorePage({ on, store, setStore, open, toast, gpsStatus }) {
   const saved = (store.home ? 1 : 0) + (store.work ? 1 : 0) + store.fav.length;
   return (
     <section className={'page scroll' + (on ? ' on' : '')} id="pMore">
-      <h1><small>{tr('moreSub')}</small>{tr('more')}</h1>
+      <div className="pghead"><BackBtn onClick={onBack} /><h1><small>{tr('moreSub')}</small>{tr('more')}</h1></div>
       <div className="hero glass">
         <div className="logo2"><Logo size={58} id="hl" /></div>
         <div><b>Bearline</b><span>{tr('tagline')}</span></div>
@@ -285,7 +301,7 @@ export function MorePage({ on, store, setStore, open, toast, gpsStatus }) {
         <Row ico="ticket" title={tr('tickets')} sub={tr('zonesSub')} onClick={() => open('tic')} />
       </div>
       <div className="list glass">
-        <Row ico="mic" title={tr('asTitle')} sub={tr('asSub')} onClick={() => open('assist')} />
+        {VOICE_ASSISTANT && <Row ico="mic" title={tr('asTitle')} sub={tr('asSub')} onClick={() => open('assist')} />}
         <Row ico="building" title={tr('shTitle')} sub={tr('shSub')} onClick={() => open('sthelp')} />
         <Row ico="refresh" title={tr('alTitle')} sub={tr('alSub')} onClick={() => open('alt')} />
         <Row ico="moon" title={tr('nightTitle')} sub={tr('nightSub')} onClick={() => open('night')} />
@@ -359,36 +375,18 @@ export function TimeSheet({ when, onApply }) {
   );
 }
 
-export function StartSheet({ route, onGps, onDemo }) {
-  if (!route) return null;
-  return (
-    <>
-      <h3>{tr('startNav')}</h3>
-      <p className="mute" style={{ marginTop: 0 }}>{ST[route.from].name} {tr('to')} {ST[route.to].name} &middot; {route.minutes} {tr('min')}</p>
-      <button className="opt main" onClick={onGps}>
-        <span className="ico"><Ico n="gps" /></span>
-        <span><b>{tr('liveGps')}</b><span>{tr('liveGpsSub')}</span></span>
-      </button>
-      <button className="opt" onClick={onDemo}>
-        <span className="ico"><Ico n="sim" /></span>
-        <span><b>{tr('demo')}</b><span>{tr('demoSub')}</span></span>
-      </button>
-    </>
-  );
-}
-
 function PlacesModal({ store, setStore, onPick, say }) {
   const [edit, setEdit] = useState(null);
   const [q, setQ] = useState('');
-  const set = (k, s) => { setStore((o) => ({ ...o, [k]: s ? s.name : '' })); setEdit(null); setQ(''); say(tr('saved')); };
+  const set = (k, s) => { setStore((o) => ({ ...o, [k]: s ? s.name : '', [k + 'At']: s && s.place ? { lat: s.lat, lng: s.lng } : null })); setEdit(null); setQ(''); say(tr('saved')); };
   const slot = (k) => (
     <div className="plc" key={k}>
       <span className="pi"><Ico n={k} /></span>
-      <div className="tx" onClick={() => store[k] && onPick(store[k])}><b>{tr(k)}</b><small>{store[k] || tr('notSet')}</small></div>
+      <div className="tx" onClick={() => store[k] && onPick(store[k], store[k + 'At'])}><b>{tr(k)}</b><small>{store[k] || tr('notSet')}</small></div>
       <button className="btn alt sm" onClick={() => { setEdit(edit === k ? null : k); setQ(''); }}>{store[k] ? tr('change') : tr('set')}</button>
       {store[k] && <button className="btn alt sm sq" aria-label={tr('remove')} onClick={() => set(k, null)}><Ico n="close" /></button>}
       {edit === k && (
-        <div className="sbox2"><SearchBox value={q} onChange={setQ} onPick={(s) => set(k, s)} placeholder={tr('searchStation')} store={{ ...store, fav: [], rec: [], home: '', work: '' }} ddTop={52} /></div>
+        <div className="sbox2"><SearchBox value={q} onChange={setQ} onPick={(s) => set(k, s)} placeholder={tr('searchAny')} store={{ ...store, fav: [], rec: [], home: '', work: '' }} ddTop={52} places /></div>
       )}
     </div>
   );
@@ -411,7 +409,7 @@ function PlacesModal({ store, setStore, onPick, say }) {
   );
 }
 
-export function ModalContent({ kind, store, setStore, board, boardOpts, onFav, onTrip, onLang, onApplyTime, when, say, nav, stNames, onAssist }) {
+export function ModalContent({ kind, store, setStore, board, boardOpts, onFav, onTrip, onLang, onApplyTime, when, say, nav, stNames, onAssist, onCmd }) {
   switch (kind) {
     case 'tkt':
       return <TicketHelper nav={nav} />;
@@ -422,9 +420,9 @@ export function ModalContent({ kind, store, setStore, board, boardOpts, onFav, o
     case 'night':
       return <NightInfo store={store} names={stNames && stNames.length ? stNames : ['Alexanderplatz']} />;
     case 'assist':
-      return <Assistant onGo={onAssist} say={say} />;
+      return <Assistant onGo={onAssist} say={say} store={store} onCmd={onCmd} />;
     case 'assistmic':
-      return <Assistant onGo={onAssist} say={say} auto />;
+      return <Assistant onGo={onAssist} say={say} store={store} onCmd={onCmd} auto />;
     case 'places':
       return <PlacesModal store={store} setStore={setStore} onPick={onFav} say={say} />;
     case 'board':

@@ -1,7 +1,7 @@
 /* Strings for the live trip card (English and German; other languages fall back to English). */
 export default {
   en: {
-    headUp: 'Rotate map with heading', tripArrive: 'Arrive', inMinN: 'in {n} min', inMin1: 'in 1 min', tripDelay: '+{n} min', tripOnTime: 'On time',
+    headUp: 'Rotate map with heading', coachBoard: 'Board here', coachDir: 'Direction of travel', tripArrive: 'Arrive', inMinN: 'in {n} min', inMin1: 'in 1 min', tripDelay: '+{n} min', tripOnTime: 'On time',
     tripOff1: 'Get off in 1 stop', tripOffN: 'Get off in {n} stops', tripOffAt: 'at {st}', tripOffNow: 'Get off now at {st}', tripEst: 'Estimated, live data not available',
     tripThen: 'Then', tripNext: 'Next train', tripAfter: 'After that', tripPlatform: 'Platform {p}', tripChangeAt: 'Change at {st}',
     connOk: 'Connection OK', connTight: 'Tight connection', connMissed: 'You will probably miss it', connNext: 'Next train you can reach',
@@ -11,7 +11,7 @@ export default {
     notifTitle: 'Bearline navigation', notifNext: 'Next: {st}', notifArrive: 'Arrive {t}', notifChange: 'Change to {line}', notifOff: 'Get off at {st}',
   },
   de: {
-    headUp: 'Karte nach Blickrichtung drehen', tripArrive: 'Ankunft', inMinN: 'in {n} Min.', inMin1: 'in 1 Min.', tripDelay: '+{n} Min.', tripOnTime: 'Pünktlich',
+    headUp: 'Karte nach Blickrichtung drehen', coachBoard: 'Hier einsteigen', coachDir: 'Fahrtrichtung', tripArrive: 'Ankunft', inMinN: 'in {n} Min.', inMin1: 'in 1 Min.', tripDelay: '+{n} Min.', tripOnTime: 'Pünktlich',
     tripOff1: 'Aussteigen in 1 Halt', tripOffN: 'Aussteigen in {n} Halten', tripOffAt: 'an {st}', tripOffNow: 'Jetzt aussteigen: {st}', tripEst: 'Geschätzt, keine Live-Daten',
     tripThen: 'Danach', tripNext: 'Nächster Zug', tripAfter: 'Dann', tripPlatform: 'Gleis {p}', tripChangeAt: 'Umsteigen an {st}',
     connOk: 'Anschluss sicher', connTight: 'Knapper Anschluss', connMissed: 'Anschluss wohl verpasst', connNext: 'Nächster erreichbarer Zug',

@@ -3,9 +3,10 @@
  * Credit (must stay visible): OpenFreeMap, OpenMapTiles, data from OpenStreetMap contributors. */
 import { ST } from './net.js';
 import { geoAt } from './geo.js';
+import { tuneMap } from './mapstyle.js';
 
 const STYLE_LIGHT = 'https://tiles.openfreemap.org/styles/liberty';
-const STYLE_DARK = 'https://tiles.openfreemap.org/styles/dark';
+const STYLE_DARK = 'https://tiles.openfreemap.org/styles/liberty'; // same detailed style as light, recoloured by tuneMap
 
 const angDiff = (a, b) => ((b - a + 540) % 360) - 180;
 
@@ -65,6 +66,7 @@ export class RealMap3D {
 
   /* readable colours: navy dark theme, soft light theme, height ramp on buildings, calmer labels */
   tune(dark) {
+    if (dark) { tuneMap(this.map, true); try { this.map.setLight({ anchor: 'viewport', color: '#9db4ff', intensity: 0.3, position: [1.4, 210, 45] }); } catch (e) { /* ignore */ } this.dark = true; return; }
     const map = this.map, layers = (map.getStyle().layers || []);
     const set = (id, prop, val) => { try { map.setPaintProperty(id, prop, val); } catch (e) { /* ignore */ } };
     const P = dark

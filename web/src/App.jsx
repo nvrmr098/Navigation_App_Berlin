@@ -2,19 +2,24 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { R, ST, clamp, pointAt } from './net.js';
 import { MapEngine } from './mapEngine.js';
 import { GpsTracker, project, distKm, nearestStation, snapToRoute, geoAt, getPositionOnce, haptic, keepAwake } from './geo.js';
-import { Badge, SearchBox, Ico, Splash, BerlinClock } from './ui.jsx';
+import { Badge, SearchBox, Ico, BerlinClock, BackBtn } from './ui.jsx';
+import Splash from './splash.jsx';
 const ModeMap = React.lazy(() => import('./modemap.jsx'));
 const WalkView = React.lazy(() => import('./walkview.jsx'));
 import { meters } from './walk.js';
 import { beep } from './geo.js';
-import { SHARE_API } from './config.js';
+import { SHARE_API, VOICE_ASSISTANT } from './config.js';
 import { POPULAR } from './popular.js';
-import { NavPage, MorePage, NearbyPage, ModalContent, StartSheet } from './pages.jsx';
+import { NavPage, MorePage, NearbyPage, ModalContent } from './pages.jsx';
+import { EntrancesModal, CalibModal, RouteNotes } from './extras.jsx';
+import { applyPos, hasCalib, offsetMeters } from './calibrate.js';
+import { Vehicle2D } from './vehicle2d.js';
+import { vehicleKind } from './avatar3d.js';
 import { setLang, tr, cnt, fmtTime } from './i18n.js';
 import { TripLive } from './trip-ui.jsx';
 
 const loadStore = () => {
-  const base = { theme: 'auto', skin: 'classic', lang: 'en', home: '', work: '', fav: [], rec: [], lbl: true, step: false, real3d: true, awake: true, haptics: true };
+  const base = { theme: 'auto', skin: 'classic', lang: 'en', home: '', work: '', homeAt: null, workAt: null, fav: [], rec: [], lbl: true, step: false, real3d: true, awake: true, haptics: true };
   try {
     const raw = localStorage.getItem('br1') || localStorage.getItem('bl1');
     if (raw) { const o = JSON.parse(raw); Object.assign(base, o); if (o.dark && !o.theme) base.theme = 'dark'; }
@@ -59,8 +64,10 @@ export default function App() {
   const [gpsStatus, setGpsStatus] = useState('idle');
   const [locateOn, setLocateOn] = useState(false);
   const [modal, setModal] = useState(null);
-  const [startOffer, setStartOffer] = useState(null);
   const [toast, setToast] = useState('');
+  const [entInfo, setEntInfo] = useState(null);
+  const [calibOn, setCalibOn] = useState(false);
+  const fromPageRef = useRef('pMap'), vehRef = useRef(null), histRef = useRef({ pushed: 0, ignore: 0 }), closeTopRef = useRef(null), mapHost = useRef(null);
 
   const cvRef = useRef(null), glRef = useRef(null), realDiv = useRef(null), eng = useRef(null), scene = useRef(null), real = useRef(null), trk = useRef(null);
   const ov = useRef(null);
@@ -97,8 +104,8 @@ export default function App() {
     const onResize = () => { e.resize(); if (scene.current) scene.current.resize(e.W, e.H, e.dpr); if (real.current) real.current.resize(); };
     window.addEventListener('resize', onResize); onResize();
 
-    trk.current = new GpsTracker((f) => {
-      const L = live.current; L.fix = f; L.lastFixAt = Date.now();
+    trk.current = new GpsTracker((f0) => {
+      const L = live.current; L.raw = f0; const f = applyPos(f0); L.fix = f; L.lastFixAt = Date.now();
       const pr = project(f.lat, f.lng);
       if (locateRef.current || (L.on && L.source === 'gps')) { e.user = { x: pr.x, y: pr.y }; e.userAnim = true; e.schedule(); }
       if (locateFirst.current) {
@@ -117,7 +124,8 @@ export default function App() {
   }, [say]);
   useEffect(() => { const e = eng.current; if (!e) return; e.filter = filter; e.selected = selected; e.schedule(); }, [filter, selected]);
   useEffect(() => { if (page === 'pMap' && eng.current) eng.current.resize(); }, [page]);
-  useEffect(() => { if (gpsStatus === 'denied' && live.current.on && live.current.source === 'gps') { live.current.source = 'demo'; setSource('demo'); say(tr('permDemo')); } }, [gpsStatus, say]);
+  useEffect(() => { if (gpsStatus === 'denied' && live.current.on && live.current.source === 'gps' && ov.current) { const r = ov.current.route; live.current.on = false; showOnMap(r); say(tr('permOff')); } // eslint-disable-next-line
+  }, [gpsStatus, say]);
 
   // ---------- helpers ----------
   const filterFor = (s) => { if (!s.lines.some((l) => filter === 'both' || (filter === 'S' ? /^S/.test(l) : /^U/.test(l)))) setFilter('both'); };
@@ -167,27 +175,41 @@ export default function App() {
   const resetView = () => { destroyReal(); viewRef.current = '2d'; setView('2d'); };
 
   const showOnMap = (r) => {
-    remember(r); const o = makeOverlay(r); ov.current = o; eng.current.overlay = o; eng.current.navMode = false; setFilter('both');
+    fromPageRef.current = page; // closing the preview goes back to where it was opened
+    if (!r.alt) remember(r); const o = makeOverlay(r); ov.current = o; eng.current.overlay = o; eng.current.navMode = false; setFilter('both');
     live.current.on = false; live.current.phase = 'idle'; resetView(); setPaused(false); setFinished(false);
     setPage('pMap'); setSelected(-1); setMode('show');
     pushInfo({ lines: r.legs.map((l) => l.line), title: r.minutes + ' min', sub: ST[r.from].name + ' ' + tr('to') + ' ' + ST[r.to].name, pct: 0, hud: '', intro: null, off: null });
-    setTimeout(() => { eng.current.resize(); eng.current.fitPoints(o.path.pts, 130, 190); }, 30);
+    setTimeout(() => { eng.current.resize(); eng.current.fitPoints(o.path.pts, 130, 230); }, 30);
   };
 
+  const ensureVehicle = () => { if (!vehRef.current && mapHost.current) vehRef.current = new Vehicle2D(mapHost.current, 120); };
+  const dropVehicle = () => { if (vehRef.current) { vehRef.current.destroy(); vehRef.current = null; } if (eng.current) eng.current.vehicle3d = false; };
   const endNav = () => {
+    const ret = mode === 'show' && fromPageRef.current !== 'pMap' ? fromPageRef.current : null;
+    dropVehicle();
     if (shareRef.current) { const sh = shareRef.current; sendPos(sh, true).finally(() => stopShare(true)); }
     const L = live.current; L.on = false; L.phase = 'idle';
     ov.current = null; eng.current.overlay = null; eng.current.navMode = false; resetView(); setMode('idle'); setPaused(false); setFinished(false);
     keepAwake(false);
     if (!locateRef.current) { eng.current.user = null; trk.current.stop(); }
     eng.current.fitAll();
+    if (ret) setPage(ret);
   };
 
+  /* the 3D vehicle that rides along the route in the 2D view */
+  const driveVehicle = (o, p, lg, dt) => {
+    const e = eng.current, v = vehRef.current;
+    if (!v || viewRef.current !== '2d' || p == null) { if (v) v.hide(); e.vehicle3d = false; return; }
+    const m = pointAt(o, p), kind = vehicleKind(lg.line, lg.p), ok = v.update(e.sx(m.x), e.sy(m.y), m.ang, kind, lg.c, dt);
+    e.vehicle3d = ok;
+  };
   const tick = useCallback((now) => {
     const L = live.current; if (!L.on) return;
     const o = ov.current, e = eng.current, r = o.route, n = r.legs.length, dt = Math.min(0.05, (now - (L.last || now)) / 1000); L.last = now;
     const last = o.path.pts.length - 1, gps = L.source === 'gps';
     if (L.phase === 'intro') {
+      driveVehicle(o, o.marker, r.legs[0], dt);
       const t = (now - L.t0) / 1000, per = n === 1 ? 1.6 : Math.min(1.3, 3.2 / n), runStart = per * n + 0.3, runLen = 1.6;
       o.reveal = r.legs.map((_, i) => clamp((t - i * per) / per, 0, 1));
       const li = clamp(Math.floor(t / per), 0, n - 1), base = { lines: [], title: tr('yourRoute'), sub: ST[r.from].name + ' ' + tr('to') + ' ' + ST[r.to].name, pct: 0, hud: '', off: null };
@@ -220,6 +242,7 @@ export default function App() {
       }
       o.marker = L.p;
       const p = L.p, li = clamp(R.legAt(o.path, Math.min(p, last - 0.001)), 0, n - 1), lg = r.legs[li], seg = o.path.legs[li];
+      driveVehicle(o, p, lg, dt);
       if (L.follow && viewRef.current === '2d') {
         const m = pointAt(o, p), v = e.view, tz = e.z0 * 5.5; v.z += (tz - v.z) * 0.08; v.cx += (m.x - v.cx) * 0.12; v.cy += (m.y - v.cy) * 0.12;
       }
@@ -241,7 +264,7 @@ export default function App() {
       if (gps && L.fix && L.gpsIdx < 0.4 && L.offKm * 1000 > 80 && !fin) {
         L.farSince = L.farSince || Date.now();
         if (Date.now() - L.farSince > 6000) { // walked away from the first station: back to walking mode
-          const sA = ST[o.path.pts[0].st], f0 = L.fix; L.on = false; L.farSince = 0; ov.current = null; e.overlay = null; e.navMode = false; resetView(); setMode('idle');
+          dropVehicle(); const sA = ST[o.path.pts[0].st], f0 = L.fix; L.on = false; L.farSince = 0; ov.current = null; e.overlay = null; e.navMode = false; resetView(); setMode('idle');
           setWalk({ from: { lat: f0.lat, lng: f0.lng }, to: { lat: sA.lat, lng: sA.lng, name: sA.name }, title: tr('walkToStation', { st: sA.name }), route: r }); return;
         }
       } else L.farSince = 0;
@@ -257,14 +280,14 @@ export default function App() {
 
   const beginGps = async (r) => {
     const sA = ST[r.legs[0].stations[0]]; let pos = nav.fromPlace && !nav.fromPlace.me ? nav.fromPlace : null;
-    try { const f = trk.current.last || await getPositionOnce(); pos = { lat: f.lat, lng: f.lng }; } catch (e) { /* no position */ }
-    if (pos && meters(pos, sA) > 50) { setStartOffer(null); setModal(null); setPage('pMap'); setWalk({ from: pos, to: { lat: sA.lat, lng: sA.lng, name: sA.name }, title: tr('walkToStation', { st: sA.name }), route: r }); return; }
+    try { const f = applyPos(trk.current.last || await getPositionOnce()); pos = { lat: f.lat, lng: f.lng }; } catch (e) { /* no position */ }
+    if (pos && meters(pos, sA) > 50) { setModal(null); setPage('pMap'); setWalk({ from: pos, to: { lat: sA.lat, lng: sA.lng, name: sA.name }, title: tr('walkToStation', { st: sA.name }), route: r }); return; }
     startNav(r, 'gps');
   };
   const startNav = (r, src) => {
-    remember(r); const o = makeOverlay(r); o.reveal = r.legs.map(() => 0); ov.current = o; eng.current.overlay = o; eng.current.navMode = true;
+    if (!r.alt) remember(r); const o = makeOverlay(r); o.reveal = r.legs.map(() => 0); ov.current = o; eng.current.overlay = o; eng.current.navMode = true;
     const L = live.current; Object.assign(L, { on: true, phase: 'intro', source: src, p: 0, target: 0, play: true, follow: true, t0: performance.now(), last: 0, adv: null, gpsIdx: 0, offKm: 0, offSince: 0, lastFixAt: 0, alerted: '', leg: -1, done: false });
-    setSource(src); setFilter('both'); resetView(); setPaused(false); setFinished(false); setPage('pMap'); setSelected(-1); setMode('intro'); setStartOffer(null); setModal(null);
+    ensureVehicle(); setSource(src); setFilter('both'); resetView(); setPaused(false); setFinished(false); setPage('pMap'); setSelected(-1); setMode('intro'); setModal(null);
     lastInfo.current = '';
     if (src === 'gps') trk.current.start();
     if (storeRef.current.awake) keepAwake(true);
@@ -283,10 +306,11 @@ export default function App() {
     const wantReal = storeRef.current.real3d && navigator.onLine !== false;
     if (!wantReal) { if (!storeRef.current.real3d) say(tr('simple3dOff')); else say(tr('simple3dOffline')); await openGeneric(); return; }
     loadingRef.current = true; setLoading3d(true);
-    const { RealMap3D, mockStyle } = await import('./realmap.js');
+    const { RealMap3D } = await import('./realmap.js');
+    const { mockLiberty } = await import('./mapstyle.js');
     const o = ov.current, g0 = geoAt(o, 0);
     const rm = new RealMap3D(realDiv.current, {
-      dark: document.body.classList.contains('dark'), styleOverride: opts && opts.mock ? mockStyle(g0.lng, g0.lat) : undefined,
+      dark: document.body.classList.contains('dark'), styleOverride: opts && opts.mock ? mockLiberty(g0.lng, g0.lat) : undefined,
       onReady: () => { if (real.current !== rm) return; loadingRef.current = false; setLoading3d(false); viewRef.current = 'real'; setView('real'); rm.resize(); rm.setLeg(o, Math.max(0, live.current.leg)); },
       onFail: () => { if (real.current !== rm) return; rm.destroy(); real.current = null; loadingRef.current = false; setLoading3d(false); say(tr('city3dFail')); openGeneric(); },
       onUserMove: () => { live.current.follow = false; },
@@ -328,7 +352,6 @@ export default function App() {
         if (q.adv) live.current.adv = +q.adv;
         if (q.d3) setTimeout(() => toggle3d({ mock: !!q.mock }), +q.d3);
       }
-      if (q.offer && routes.length) setStartOffer(routes[0]);
       if (q.locate) toggleLocate();
       if (q.modal) { if (q.bn) setBoardName(q.bn); setModal(q.modal); }
       if (q.lang) setStore((o) => ({ ...o, lang: q.lang }));
@@ -354,6 +377,17 @@ export default function App() {
     if (t.place) pickPlace('to', t.place); else setTo(t.st);
     setModal(null); setPage('pNav');
   };
+  const onCmd = (it) => {
+    if (it.type === 'theme') { setStore((o) => ({ ...o, theme: it.theme })); closeModal(); say(tr(it.theme === 'dark' ? 'asDark' : 'asLight')); return; }
+    if (it.type === 'page') { closeModal(); setPage(it.page); return; }
+    if (it.type === 'departures') { closeModal(); setTimeout(() => openBoard(it.name), 120); return; }
+    if (it.type === 'start') {
+      closeModal();
+      if (ov.current && mode === 'show') { beginGps(ov.current.route); return; }
+      const r = nav.routes && nav.routes[nav.sel || 0]; if (r) showOnMap(r); else say(tr('asNoRoute'));
+    }
+  };
+  const openExits = (name, lat, lng, dest) => { setEntInfo({ name, lat, lng, dest: dest || null }); setModal('ent'); };
   const sendPos = async (sh, ended) => {
     const f = live.current.fix || trk.current.last;
     if (!f && !ended) return;
@@ -391,12 +425,56 @@ export default function App() {
     if (!r && !f) { say(tr('tkNoRoute')); return; }
     if (navigator.share) navigator.share({ text: t }).catch(() => {}); else if (navigator.clipboard) navigator.clipboard.writeText(t).then(() => say(tr('routeCopied')), () => say(tr('shareNA'))); else say(tr('shareNA'));
   };
-  const openBoard = (name, at, all) => { setBoardName(name); setBoardOpts(at ? { at, all: !!all } : null); setStartOffer(null); setModal('board'); };
-  const setDest = (name) => { const s = R.byName(name); if (s) { setTo(s); setPage('pNav'); } };
+  const openBoard = (name, at, all) => { setBoardName(name); setBoardOpts(at ? { at, all: !!all } : null); setModal('board'); };
+  const setDest = (name) => {
+    const s = R.byName(name);
+    if (s) { setTo(s); setPage('pNav'); return; }
+    const k = name === store.home ? 'home' : name === store.work ? 'work' : '', at = k && store[k + 'At'];
+    if (at) { pickPlace('to', { place: true, name, lat: at.lat, lng: at.lng }); setPage('pNav'); }
+  };
+  const saveAs = (k) => {
+    const pl = nav.toPlace, nm = pl ? pl.name : nav.to && nav.to.name; if (!nm) return;
+    const has = store[k] === nm;
+    setStore((o) => ({ ...o, [k]: has ? '' : nm, [k + 'At']: has ? null : pl ? { lat: pl.lat, lng: pl.lng } : null })); say(has ? tr('removed') : tr('savedAsMsg', { k: tr(k), n: nm }));
+  };
+  const saveCommute = () => {
+    if (!nav.from || !nav.to) return; const a = nav.from.name, b = nav.to.name;
+    const has = (store.commutes || []).some((c) => c[0] === a && c[1] === b);
+    setStore((o) => ({ ...o, commutes: has ? (o.commutes || []).filter((c) => !(c[0] === a && c[1] === b)) : [[a, b], ...(o.commutes || [])].slice(0, 4) })); say(has ? tr('removed') : tr('commuteSaved'));
+  };
+  const resetNav = () => { setNav({ from: null, to: null, routes: [], sel: 0 }); setFq(''); setTq(''); setWhen({ mode: 'now', ts: 0 }); };
   const toggleFavSel = () => { const nme = sel.name, has = store.fav.indexOf(nme) >= 0; setStore((s) => ({ ...s, fav: has ? s.fav.filter((x) => x !== nme) : [nme, ...s.fav] })); say(has ? tr('favRemoved') : tr('favAdded')); };
   const setPlace = (k) => { const nme = sel.name; setStore((s) => ({ ...s, [k]: s[k] === nme ? '' : nme })); say(store[k] === nme ? tr('removed') : tr(k) + ': ' + nme); };
-  const modalOpen = !!modal || !!startOffer;
-  const closeModal = () => { setModal(null); setStartOffer(null); };
+  const modalOpen = !!modal;
+  const closeModal = () => setModal(null);
+
+  // layers: tab page, route preview or navigation, walking view, sheet. Every layer is one history entry, so the phone's back key closes the top one.
+  const depth = (page !== 'pMap' ? 1 : 0) + (navActive ? 1 : 0) + (walk ? 1 : 0) + (modalOpen ? 1 : 0);
+  closeTopRef.current = () => {
+    const L = live.current;
+    if (modalOpen) { closeModal(); return; }
+    if (walk) { setWalk(null); return; }
+    if (navActive && page === 'pMap') {
+      if (mode === 'show') { endNav(); return; }
+      const now = Date.now();
+      if (L.backAt && now - L.backAt < 2500) { L.backAt = 0; endNav(); return; }
+      L.backAt = now; say(tr('backAgain')); try { history.pushState({ bl: 'k' }, ''); histRef.current.pushed++; } catch (e) { /* ignore */ }
+      return;
+    }
+    if (page !== 'pMap') { setPage('pMap'); return; }
+    if (navActive) endNav();
+  };
+  useEffect(() => {
+    const h = histRef.current;
+    try {
+      if (depth > h.pushed) { for (let i = h.pushed; i < depth; i++) history.pushState({ bl: i + 1 }, ''); h.pushed = depth; }
+      else if (depth < h.pushed) { const n = h.pushed - depth; h.ignore += n; h.pushed = depth; history.go(-n); }
+    } catch (e) { /* history not available */ }
+  }, [depth]);
+  useEffect(() => {
+    const onPop = () => { const h = histRef.current; if (h.ignore > 0) { h.ignore--; return; } if (h.pushed > 0) h.pushed--; if (closeTopRef.current) closeTopRef.current(); };
+    window.addEventListener('popstate', onPop); return () => window.removeEventListener('popstate', onPop);
+  }, []);
 
   const mineChips = [];
   if (store.home) mineChips.push(['home', store.home]);
@@ -404,8 +482,8 @@ export default function App() {
   store.fav.forEach((n) => mineChips.push(['star', n]));
 
   return (
-    <div id="app">
-      <section className={'page' + (page === 'pMap' ? ' on' : '')} id="pMap">
+    <div id="app" className={VOICE_ASSISTANT ? 'withmic' : ''}>
+      <section className={'page' + (page === 'pMap' ? ' on' : '')} id="pMap" ref={mapHost}>
         <canvas id="cv" ref={cvRef} style={{ display: view === '2d' ? 'block' : 'none' }} />
         <canvas id="gl" ref={glRef} style={{ display: view === 'generic' ? 'block' : 'none' }} />
         <div id="real" ref={realDiv} style={{ display: view === 'real' || loading3d ? 'block' : 'none', visibility: view === 'real' ? 'visible' : 'hidden' }} />
@@ -444,7 +522,7 @@ export default function App() {
           )}
           {net === 'rail' && mineChips.length > 0 && (
             <div className="pinrow">
-              {mineChips.map((m) => <button key={m[0] + m[1]} className="chip glass" onClick={() => { const s = R.byName(m[1]); if (s) { filterFor(s); selectStation(s.i, true); } }}><Ico n={m[0]} className="s" />{m[1]}</button>)}
+              {mineChips.map((m) => <button key={m[0] + m[1]} className="chip glass" onClick={() => { const s = R.byName(m[1]), at = (m[0] === 'home' || m[0] === 'work') && store[m[0] + 'At']; if (s) { filterFor(s); selectStation(s.i, true); } else if (at) showPlace({ name: m[1], lat: at.lat, lng: at.lng }); }}><Ico n={m[0]} className="s" />{m[1]}</button>)}
             </div>
           )}
         </div>
@@ -456,6 +534,7 @@ export default function App() {
             <div className="bar"><i style={{ width: info.pct + '%' }} /></div>
           </div>
         )}
+        {mode === 'show' && ov.current && <RouteNotes lat={ST[ov.current.route.from].lat} lng={ST[ov.current.route.from].lng} />}
         {mode === 'live' && source === 'gps' && !info.fin && info.nextName && ov.current && (
           <TripLive info={info} route={ov.current.route} onData={(st, li) => { const L = live.current; L.legEnd = st.trip ? st.trip.legEnd : 0; L.legEndLi = li; }} />
         )}
@@ -490,10 +569,9 @@ export default function App() {
 
         <div id="fabs" hidden={net !== 'rail'} style={sel ? { bottom: 'calc(var(--dock) + 296px)' } : navActive ? { bottom: 'calc(var(--dock) + 100px)' } : undefined}>
           {mode === 'live' && <button className="fab glass lg" aria-label="2D / 3D" onClick={() => toggle3d()}><Ico n={view === '2d' ? 'cube' : 'flat'} />{view === '2d' ? '3D' : '2D'}</button>}
-          {!navActive && <button className="fab glass mic" aria-label={tr('asTitle')} onClick={() => setModal('assistmic')}><Ico n="mic" /></button>}
           {!navActive && <button className={'fab glass' + (locateOn ? ' on' : '')} aria-label={tr('myLocation')} onClick={toggleLocate}><Ico n="locate" /></button>}
-          {view === '2d' && <button className="fab glass" aria-label="+" onClick={() => { live.current.follow = false; eng.current.zoomBy(1.5); }}>+</button>}
-          {view === '2d' && <button className="fab glass" aria-label="-" onClick={() => { live.current.follow = false; eng.current.zoomBy(1 / 1.5); }}>&minus;</button>}
+          {view === '2d' && <button className="fab glass" aria-label="+" onClick={() => { live.current.follow = false; eng.current.zoomBy(1.6); }}>+</button>}
+          {view === '2d' && <button className="fab glass" aria-label="-" onClick={() => { live.current.follow = false; eng.current.zoomBy(1 / 1.6); }}>&minus;</button>}
           {view === '2d' && <button className="fab glass" aria-label={tr('wholeNetwork')} onClick={() => { live.current.follow = false; if (ov.current) eng.current.fitPoints(ov.current.path.pts, 150, 190); else eng.current.fitAll(); }}><Ico n="map" /></button>}
         </div>
 
@@ -502,6 +580,9 @@ export default function App() {
         )}
         {mode === 'live' && !info.off && <div id="hud"><span>{info.hud}</span></div>}
 
+        {mode === 'live' && finished && source === 'gps' && (
+          <button className="btn alt endexit" onClick={() => { const sB = ST[ov.current.route.to]; openExits(sB.name, sB.lat, sB.lng, nav.toPlace || null); }}><Ico n="door" />{tr('entTitle')}</button>
+        )}
         {mode === 'live' && finished && source === 'gps' && nav.toPlace && (
           <button className="btn endwalk" onClick={() => { const f = live.current.fix, o = ov.current, sB = ST[o.route.to]; setWalk({ from: f ? { lat: f.lat, lng: f.lng } : { lat: sB.lat, lng: sB.lng }, to: nav.toPlace, title: nav.toPlace.name }); }}><Ico n="walk" />{tr('walkTo2s', { place: nav.toPlace.name })}</button>
         )}
@@ -510,8 +591,10 @@ export default function App() {
             {mode === 'live' && source === 'demo' && <button className="btn alt" onClick={onPlay}><Ico n={finished || paused ? 'play' : 'pause'} />{finished ? tr('replay') : paused ? tr('resume') : tr('pause')}</button>}
             {mode === 'live' && source === 'demo' && <button className="btn alt sq2" aria-label="Speed" onClick={() => setMult((m) => (m >= 4 ? 1 : m * 2))}>{mult}x</button>}
             {mode === 'live' && source === 'demo' && <button className="btn" onClick={onNext}><Ico n="next" />{tr('nextShort')}</button>}
+            {mode === 'live' && source === 'gps' && <button className={'btn alt sq2' + (hasCalib() ? ' on' : '')} aria-label={tr('calibrate')} onClick={() => setModal('calib')}><Ico n="crosshair" /></button>}
             {mode === 'live' && source === 'gps' && <button className="btn alt sq2" aria-label={tr('shareTrip')} onClick={shareTrip}><Ico n="share" /></button>}
             {mode === 'live' && source === 'gps' && <button className="btn" onClick={onRecenter}><Ico n="locate" />{tr('recenter')}</button>}
+            {mode === 'show' && <button className="btn" style={{ flex: 2 }} onClick={() => beginGps(ov.current.route)}><Ico n="nav" />{tr('startNav')}</button>}
             <button className="btn alt" style={mode === 'show' ? { flex: 1 } : undefined} onClick={endNav}><Ico n="close" />{mode === 'show' ? tr('closeRoute') : tr('end')}</button>
           </div>
         )}
@@ -529,22 +612,26 @@ export default function App() {
             <button className={'btn alt sm' + (sel && store.work === sel.name ? ' on' : '')} onClick={() => setPlace('work')}><Ico n="work" />{tr('work')}</button>
             <button className={'btn alt sm' + (isFav ? ' on' : '')} onClick={toggleFavSel}><Ico n="star" />{tr('favourite')}</button>
           </div>
-          <button className="btn alt sm wide" onClick={() => openBoard(sel.name)}><Ico n="train" />{tr('liveDepArr')}</button>
+          <div className="acts sub">
+            <button className="btn alt sm" onClick={() => openBoard(sel.name, null, true)}><Ico n="train" />{tr('liveDepArr')}</button>
+            <button className="btn alt sm" onClick={() => openExits(sel.name, sel.lat, sel.lng)}><Ico n="door" />{tr('entTitle')}</button>
+          </div>
         </div>
       </section>
 
       <NavPage on={page === 'pNav'} nav={nav} fq={fq} tq={tq} store={store} when={when}
         setFq={(v) => { setFq(v); if (nav.from) clearRoutes('from'); }} setTq={(v) => { setTq(v); if (nav.to) clearRoutes('to'); }}
         onPickFrom={(s) => { if (s.place) { pickPlace('from', s); return; } setFrom(s); if (!navRef.current.to) setTimeout(() => document.querySelectorAll('#pNav .fld input')[1]?.focus(), 60); }} onPickTo={(s) => (s.place ? pickPlace('to', s) : setTo(s))}
-        onSwap={swap} onSelect={(i) => setNav((n) => ({ ...n, sel: i }))} onShow={showOnMap} onStart={(r) => setStartOffer(r)} onShare={shareRoute} onModal={setModal}
+        onSwap={swap} onSelect={(i) => setNav((n) => ({ ...n, sel: i }))} onShow={showOnMap} onStart={showOnMap} onShare={shareRoute} onBack={() => setPage('pMap')} onReset={resetNav} onSaveAs={saveAs} onSaveCommute={saveCommute} onModal={setModal}
         onTime={() => setModal('time')} onBoard={openBoard} onPlaces={() => setModal('places')} onSetDest={setDest} onPickPlace={(pl) => pickPlace('to', pl)}
         onChipStation={(name) => { const s = R.byName(name); if (!nav.from) setFrom(s); else setTo(s); }}
         onChipTrip={(r) => { const a = R.byName(r[0]), b = R.byName(r[1]); setNav({ from: a, to: b, routes: R.routes(a.i, b.i), sel: 0 }); setFq(a.name); setTq(b.name); }}
         onLocate={useMyLocation} />
       <NearbyPage on={page === 'pNear'} store={store} setStore={setStore} say={say} onBoard={openBoard}
         onGo={(s) => { setTo(s); setPage('pNav'); }} onOnMap={(i) => { setPage('pMap'); selectStation(i, true); }}
-        onGoPlace={(pl) => { pickPlace('to', pl); setPage('pNav'); }} onModeMap={(k) => { setNet(k); setPage('pMap'); }} onModal={setModal} />
-      <MorePage on={page === 'pMore'} store={store} setStore={setStore} open={openModal} toast={say} gpsStatus={gpsStatus} />
+        onGoPlace={(pl) => { pickPlace('to', pl); setPage('pNav'); }} onModeMap={(k) => { setNet(k); setPage('pMap'); }} onModal={setModal} onBack={() => setPage('pMap')} />
+      <MorePage on={page === 'pMore'} store={store} setStore={setStore} open={openModal} toast={say} gpsStatus={gpsStatus} onBack={() => setPage('pMap')} />
+      {VOICE_ASSISTANT && <button className="fab glass micg" aria-label={tr('asTitle')} onClick={() => setModal('assistmic')}><Ico n="mic" /></button>}
 
       <nav id="dock" className="glass">
         <span className="thumb" style={{ transform: 'translateX(' + PAGES.indexOf(page) * 100 + '%)' }} />
@@ -557,20 +644,23 @@ export default function App() {
       <div className={'modal' + (modalOpen ? ' on' : '')} onPointerDown={(e) => { if (e.target === e.currentTarget) closeModal(); }}>
         <div className="box">
           <div className="grab" />
-          {startOffer
-            ? <StartSheet route={startOffer} onGps={() => beginGps(startOffer)} onDemo={() => startNav(startOffer, 'demo')} />
-            : <ModalContent kind={modal} store={store} setStore={setStore} board={boardName} boardOpts={boardOpts} when={when} say={say} nav={nav} stNames={[nav.from && nav.from.name, nav.to && nav.to.name, nearName].filter((x, i, a) => x && a.indexOf(x) === i)} onAssist={assistGo}
-              onFav={(n) => { closeModal(); setPage('pMap'); const s = R.byName(n); if (s) { filterFor(s); selectStation(s.i, true); } }}
+          <div className="mhead"><BackBtn onClick={closeModal} /></div>
+          {modal === 'ent' && entInfo
+            ? <EntrancesModal name={entInfo.name} lat={entInfo.lat} lng={entInfo.lng} dest={entInfo.dest} onWalk={(en) => { const f = live.current.fix || trk.current.last; if (!f) { say(tr('gpsFail')); return; } closeModal(); setPage('pMap'); setWalk({ from: { lat: f.lat, lng: f.lng }, to: { lat: en.lat, lng: en.lng, name: entInfo.name }, title: entInfo.name }); }} />
+            : modal === 'calib'
+              ? <CalibModal route={ov.current && ov.current.route} raw={live.current.raw} fix={live.current.fix} onDone={(msg) => { const L = live.current; if (L.raw) { L.fix = applyPos(L.raw); if (ov.current) { const sn = snapToRoute(ov.current, L.fix.lat, L.fix.lng, null); L.gpsIdx = sn.idx; L.offKm = sn.km; L.offSince = 0; } } closeModal(); say(msg); }} />
+              : <ModalContent kind={modal} store={store} setStore={setStore} board={boardName} boardOpts={boardOpts} when={when} say={say} nav={nav} stNames={[nav.from && nav.from.name, nav.to && nav.to.name, nearName].filter((x, i, a) => x && a.indexOf(x) === i)} onAssist={assistGo} onCmd={onCmd}
+              onFav={(n, at) => { closeModal(); setPage('pMap'); const s = R.byName(n); if (s) { filterFor(s); selectStation(s.i, true); } else if (at) showPlace({ name: n, lat: at.lat, lng: at.lng }); }}
               onLang={(id) => { setStore((o) => ({ ...o, lang: id })); closeModal(); }}
               onApplyTime={(w) => { setWhen(w); closeModal(); }}
               onTrip={(r) => { closeModal(); const a = R.byName(r[0]), b = R.byName(r[1]); setNav({ from: a, to: b, routes: R.routes(a.i, b.i), sel: 0 }); setFq(a.name); setTq(b.name); setPage('pNav'); }} />}
-          <div style={{ marginTop: 16 }}><button className="btn alt" style={{ width: '100%' }} onClick={closeModal}>{startOffer ? tr('cancel') : tr('close')}</button></div>
+          <div style={{ marginTop: 16 }}><button className="btn alt" style={{ width: '100%' }} onClick={closeModal}>{tr('close')}</button></div>
         </div>
       </div>
       {toast && <div className="toast">{toast}</div>}
       {walk && (
         <React.Suspense fallback={null}>
-          <WalkView key={walk.title} toStation={!!walk.route} from={walk.from} to={walk.to} title={walk.title} dark={document.body.classList.contains('dark')}
+          <WalkView key={walk.title} say={say} toStation={!!walk.route} from={walk.from} to={walk.to} title={walk.title} dark={document.body.classList.contains('dark')}
             onClose={() => setWalk(null)} onArrive={() => { const w = walk; setWalk(null); if (w.route) startNav(w.route, 'gps'); }} />
         </React.Suspense>
       )}

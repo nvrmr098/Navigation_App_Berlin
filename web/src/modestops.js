@@ -1,5 +1,5 @@
-/* Tram and bus stops (from the VBB open data files) with the lines that serve them. */
-const loaders = { tram: () => import('./modes-tram.json'), bus: () => import('./modes-bus.json') };
+/* Tram, bus and regional train (RE/RB) stops (from the VBB open data files) with the lines that serve them. */
+const loaders = { tram: () => import('./modes-tram.json'), bus: () => import('./modes-bus.json'), re: () => import('./modes-re.json') };
 const cache = {};
 export function loadStops(kind) {
   if (cache[kind]) return cache[kind];

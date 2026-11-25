@@ -7,6 +7,7 @@ const PRODUCTS = 'suburban=true&subway=true&bus=false&tram=false&ferry=false&exp
 const PRODUCTS_ALL = 'suburban=true&subway=true&bus=true&tram=true&ferry=false&express=false&regional=true';
 const cache = new Map();      // url -> { t, data }
 const inflight = new Map();   // url -> promise
+const staleHits = new Map(); // url -> time of the saved copy that was used because the network failed
 
 async function getJson(path, ttl) {
   const url = API + path, hit = cache.get(url);
@@ -15,8 +16,8 @@ async function getJson(path, ttl) {
   const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 9000);
   const p = fetch(url, { signal: ctl.signal, headers: { Accept: 'application/json' } })
     .then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-    .then((d) => { cache.set(url, { t: Date.now(), data: d }); try { if (path.indexOf('/journeys') < 0) localStorage.setItem('bl_c:' + path.slice(0, 180), JSON.stringify({ t: Date.now(), d })); } catch (e) { /* storage full */ } return d; })
-    .catch((err) => { try { const o = JSON.parse(localStorage.getItem('bl_c:' + path.slice(0, 180)) || 'null'); if (o && Date.now() - o.t < 24 * 3600 * 1000) { cache.set(url, { t: Date.now() - ttl + 5000, data: o.d }); return o.d; } } catch (e2) { /* none */ } throw err; })
+    .then((d) => { cache.set(url, { t: Date.now(), data: d }); staleHits.delete(url); try { if (path.indexOf('/journeys') < 0) localStorage.setItem('bl_c:' + path.slice(0, 180), JSON.stringify({ t: Date.now(), d })); } catch (e) { /* storage full */ } return d; })
+    .catch((err) => { try { const o = JSON.parse(localStorage.getItem('bl_c:' + path.slice(0, 180)) || 'null'); if (o && Date.now() - o.t < 24 * 3600 * 1000) { cache.set(url, { t: Date.now() - ttl + 5000, data: o.d }); staleHits.set(url, o.t); return o.d; } } catch (e2) { /* none */ } throw err; })
     .finally(() => { clearTimeout(timer); inflight.delete(url); });
   inflight.set(url, p);
   return p;
@@ -73,7 +74,9 @@ export async function board(name, kind, opts) {
   if (o.when) q += '&when=' + encodeURIComponent(new Date(o.when).toISOString());
   const d = await getJson(q, 15000);
   const list = Array.isArray(d) ? d : (d && (d.departures || d.arrivals)) || [];
-  return list.map((x) => mapRow(x, kind === 'arrivals')).filter((x) => x.line && x.when).sort((a, b) => a.when - b.when);
+  const rows = list.map((x) => mapRow(x, kind === 'arrivals')).filter((x) => x.line && x.when).sort((a, b) => a.when - b.when);
+  rows.staleAt = staleHits.get(API + q) || 0; // set when the rows come from the saved copy (offline)
+  return rows;
 }
 
 // next trains of one line towards one terminus (used for the route cards)
@@ -83,8 +86,11 @@ export function pickTrains(all, line, toward) {
   return hit.length ? hit : same;
 }
 
-/* ---------- service updates ---------- */
+/* ---------- service updates (S-Bahn, U-Bahn, tram, bus, regional trains) ---------- */
 const HUBS = ['Alexanderplatz', 'Hauptbahnhof', 'Friedrichstr.', 'Zoologischer Garten', 'Ostkreuz', 'Südkreuz', 'Gesundbrunnen', 'Westkreuz', 'Jannowitzbrücke', 'Hermannplatz'];
+// busy tram, bus and regional stops: warnings ride along with their departures
+const HUBS_OTHER = ['Rathaus Pankow', 'Warschauer Str.', 'Walther-Schreiber-Platz', 'Rathaus Spandau', 'Ostbahnhof', 'Potsdam Hauptbahnhof', 'Flughafen BER', 'Hackescher Markt'];
+export const PROD_GROUPS = { S: ['suburban'], U: ['subway'], tram: ['tram'], bus: ['bus'], RE: ['regional', 'express'] };
 
 const addRemark = (map, r, line, product) => {
   if (!r || (r.type !== 'status' && r.type !== 'warning')) return;
@@ -100,21 +106,21 @@ const strip = (h) => String(h || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g,
 export async function disruptions() {
   const map = new Map(); let cancelled = 0, okCount = 0;
   const lang = getLang();
-  // 1) the generic remarks list when the API offers it
+  // 1) the generic remarks list when the API offers it (all local modes and regional trains)
   try {
-    const d = await getJson('/remarks?results=250&suburban=true&subway=true&bus=false&tram=false&ferry=false&express=false&regional=false&language=' + lang, 4 * 60000);
+    const d = await getJson('/remarks?results=300&' + PRODUCTS_ALL + '&language=' + lang, 4 * 60000);
     const list = Array.isArray(d) ? d : (d && d.remarks) || [];
     list.forEach((r) => {
-      const p = r.products || {};
-      if (p && (p.suburban || p.subway || (!('suburban' in p) && !('subway' in p)))) addRemark(map, r, '', p.suburban ? 'suburban' : p.subway ? 'subway' : '');
+      const p = r.products || {}, on = Object.keys(p).filter((k) => p[k]);
+      if (on.length) on.forEach((k) => addRemark(map, r, '', k)); else addRemark(map, r, '', '');
     });
     if (list.length) okCount++;
   } catch (e) { /* not available, use the station boards below */ }
-  // 2) warnings that ride along with departures at the big hubs
-  const jobs = HUBS.map(async (h) => {
+  // 2) warnings that ride along with departures at the big hubs, all modes
+  const jobs = HUBS.concat(HUBS_OTHER).map(async (h) => {
     try {
       const id = await stationId(h);
-      const d = await getJson('/stops/' + id + '/departures?' + PRODUCTS + '&remarks=true&results=30&duration=60&language=' + lang, 4 * 60000);
+      const d = await getJson('/stops/' + id + '/departures?' + PRODUCTS_ALL + '&remarks=true&results=40&duration=60&language=' + lang, 4 * 60000);
       const list = Array.isArray(d) ? d : (d && d.departures) || [];
       okCount++;
       list.forEach((x) => {
@@ -128,8 +134,8 @@ export async function disruptions() {
   if (!okCount) throw new Error('offline');
   const out = [...map.values()].map((e) => ({
     id: e.id, title: strip(e.summary) || strip(e.text).slice(0, 80), text: strip(e.text), from: e.from, to: e.to, priority: e.priority,
-    lines: [...e.lines].filter((l) => /^[SU]\d/.test(l)).sort((a, b) => a.localeCompare(b, 'en', { numeric: true })),
-    prods: [...e.prods],
+    lines: [...e.lines].sort((a, b) => a.localeCompare(b, 'en', { numeric: true })).slice(0, 12),
+    prods: [...e.prods].filter(Boolean),
   })).filter((e) => e.title || e.text);
   out.sort((a, b) => b.priority - a.priority || (Date.parse(b.from) || 0) - (Date.parse(a.from) || 0));
   return { items: out, cancelled, at: Date.now() };

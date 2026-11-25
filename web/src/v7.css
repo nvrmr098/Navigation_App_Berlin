@@ -1,0 +1,113 @@
+/* v7: start clip, back buttons, reset and save bars, search groups, walking view additions, entrances, calibration, service filters */
+
+/* ---------- start clip ---------- */
+.splash2{position:fixed;inset:0;z-index:300;background:#0B1020;overflow:hidden;transition:opacity .42s ease;touch-action:manipulation}
+.splash2.out{opacity:0;pointer-events:none}
+.s2cv{position:absolute;inset:0;width:100%;height:100%;display:block}
+.s2logo{position:absolute;left:50%;transform:translate(-50%,-50%) scale(.86);opacity:0;will-change:transform,opacity;filter:drop-shadow(0 10px 30px rgba(79,107,255,.45))}
+.s2name{position:absolute;left:50%;transform:translate(-50%,10px);opacity:0;text-align:center;color:#fff;width:90%}
+.s2name h1{margin:0;font:700 40px/1.05 'Space Grotesk Variable','Space Grotesk',Inter,system-ui,sans-serif;letter-spacing:-.02em}
+.s2name p{margin:8px 0 0;font-size:15.5px;font-weight:550;color:rgba(255,255,255,.72);letter-spacing:.01em}
+@media (prefers-reduced-motion:reduce){.splash2{transition:none}}
+
+/* ---------- back button and page heads ---------- */
+.backbtn{width:42px;height:42px;border-radius:21px;flex:none;display:inline-flex;align-items:center;justify-content:center;background:var(--surface);border:1px solid var(--line);color:var(--ink);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);transition:transform .15s var(--spring)}
+.backbtn:active{transform:scale(.9)}
+.backbtn svg{width:22px;height:22px}
+.pghead{display:flex;align-items:flex-start;gap:10px}
+.pghead h1{flex:1;min-width:0;margin-top:0}
+.pghead .backbtn{margin-top:4px}
+.rstbtn{margin-top:6px;height:38px;padding:0 13px;border-radius:19px;display:inline-flex;align-items:center;gap:6px;flex:none;background:var(--surface);border:1px solid var(--line);font-size:13.5px;font-weight:600;color:var(--ink)}
+.rstbtn svg{width:16px;height:16px}
+.rstbtn:disabled{opacity:.4}
+.mhead{display:flex;margin:-2px 0 6px}
+
+/* ---------- save as home or work ---------- */
+.savebar{display:flex;gap:8px;margin:2px 0 10px;overflow-x:auto;scrollbar-width:none}
+.savebar .chip{flex:none;height:34px;font-size:13px}
+.savebar .chip.on{background:var(--grad);color:#fff;border-color:transparent}
+
+/* ---------- search dropdown: groups and well separated rows ---------- */
+.dd .it{min-height:50px}
+.dd .gh{padding:8px 14px 4px;font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
+
+/* ---------- voice button on every page: sits in the dock row, so it never covers content ---------- */
+.withmic #dock{left:14px;transform:none;width:calc(100% - 28px - 66px);max-width:400px}
+.micg{position:fixed;right:14px;z-index:80;width:56px;height:56px;border-radius:28px;bottom:calc(env(safe-area-inset-bottom) + 16px + (var(--dock) - 56px) / 2);background:var(--grad)!important;color:#fff;border-color:transparent!important;box-shadow:0 10px 26px color-mix(in srgb,var(--accent) 45%,transparent)}
+.micg svg{width:24px;height:24px}
+@media (min-width:500px){.withmic #dock{left:calc(50% - 233px)}.micg{right:calc(50% - 233px)}}
+body.skin-modern .micg{background:#c8ff3d!important;color:#11131a}
+
+/* ---------- 3D vehicle on the 2D map ---------- */
+.veh2d{filter:drop-shadow(0 6px 8px rgba(0,0,0,.28))}
+
+/* ---------- alternatives ---------- */
+.alt .altgo{margin-top:10px;width:100%}
+.alt .altno{display:flex;align-items:center;gap:6px;margin-top:8px;color:var(--mute);font-size:12.5px}
+.alt .altno svg{width:15px;height:15px;flex:none}
+
+/* ---------- departures: cancelled rows (own class, the global .x is the close button) ---------- */
+.brow{grid-template-columns:48px auto 1fr auto}
+.brow.cx .bt,.brow.cx .bd{text-decoration:line-through;text-decoration-thickness:1.5px;opacity:.5}
+.brow.cx>:nth-child(2){opacity:.45;filter:grayscale(.7)}
+.brow .bs{display:flex;flex-direction:column;align-items:flex-end;justify-content:center;gap:3px;min-width:58px}
+.brow .bs .bm{line-height:1.1}
+.ntc.cx{opacity:.6;text-decoration:line-through}
+.modes{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin:2px 0 10px}
+.modes .chip{flex:none;height:32px;font-size:13px;padding:0 12px}
+.modes .chip.on{background:var(--grad);color:#fff;border-color:transparent}
+.scrollx{overflow-x:auto;scrollbar-width:none}
+.seg3 button .cn{font-style:normal;margin-left:5px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--accent);color:#fff;font-size:11px;font-weight:700;display:inline-flex;align-items:center;justify-content:center}
+
+/* ---------- entrances and exits ---------- */
+.plc.ent .pi{width:38px;height:38px;border-radius:12px;background:var(--solid2);display:flex;align-items:center;justify-content:center;flex:none;color:var(--accent)}
+.plc.ent.best .pi{background:var(--grad);color:#fff}
+.plc.ent.best{background:color-mix(in srgb,var(--accent) 8%,transparent);border-radius:14px;padding-left:8px;padding-right:8px}
+button.plc{width:100%;text-align:left;background:none}
+button.plc:disabled{opacity:.5}
+.plc .pi{width:38px;height:38px;border-radius:12px;background:var(--solid2);display:flex;align-items:center;justify-content:center;flex:none;color:var(--accent)}
+.endexit{position:absolute;left:12px;bottom:calc(var(--dock) + 100px);z-index:26;height:46px}
+
+/* ---------- walking view ---------- */
+.avatar3d{position:absolute;left:0;top:0;z-index:4;pointer-events:none;will-change:transform;filter:drop-shadow(0 8px 10px rgba(0,0,0,.3))}
+.wk-top{display:flex;align-items:center;gap:12px}
+.wk-top .wk-tt{flex:1;min-width:0}
+.wk-top h3{margin:2px 0 6px}
+.wk-back{width:42px;height:42px;border-radius:21px;flex:none;display:flex;align-items:center;justify-content:center;background:var(--solid2);color:var(--ink)}
+.wk-back svg{width:22px;height:22px}
+.wk-side{position:absolute;right:12px;top:calc(env(safe-area-inset-top) + 150px);z-index:6;display:flex;flex-direction:column;gap:10px}
+.wk-side .fab small{font-size:11px;font-weight:700;margin-left:2px}
+.wk-side .fab{width:auto;min-width:48px;padding:0 12px;gap:3px}
+.wk-skip{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 90px);z-index:7;height:44px}
+.wk-entry{position:absolute;left:12px;right:12px;bottom:calc(env(safe-area-inset-bottom) + 84px);z-index:6;border-radius:20px;padding:11px 14px;display:flex;align-items:center;gap:10px}
+.wk-entry svg{width:22px;height:22px;flex:none;color:var(--accent)}
+.wk-entry b{display:block;font-size:14.5px}
+.wk-entry small{display:block;color:var(--mute);font-size:12.5px;margin-top:1px}
+.wk-ent{width:30px;height:30px;border-radius:50%;background:var(--solid);border:2.5px solid var(--accent);box-shadow:0 3px 10px rgba(0,0,0,.35);display:grid;place-items:center;cursor:pointer}
+.wk-ent i{display:block;width:10px;height:10px;border-radius:3px;background:var(--accent)}
+.wk-ent.sf{border-color:#18b26b}.wk-ent.sf i{background:#18b26b}
+.wk-ent.on{transform:scale(1.25);background:var(--accent)}.wk-ent.on i{background:#fff}
+.wk-calib{position:absolute;left:12px;right:12px;bottom:calc(env(safe-area-inset-bottom) + 84px);z-index:8;border-radius:26px;padding:16px}
+.wk-calib>b{display:block;font-size:17px;margin-bottom:2px}
+.wk-calib .eight{height:46px;margin:8px 0 2px;color:var(--accent)}
+.wk-calib .eight svg{width:100%;height:100%}.wk-calib .eight path{fill:none;stroke:currentColor;stroke-width:2.4;opacity:.45}.wk-calib .eight circle{fill:currentColor}
+.wk-cross{position:absolute;inset:0;z-index:5;pointer-events:none;display:flex;align-items:center;justify-content:center}
+.wk-cross i{position:relative;width:46px;height:46px;border-radius:50%;border:3px solid #ef4455;background:rgba(239,68,85,.12)}
+.wk-cross i::before,.wk-cross i::after{content:'';position:absolute;background:#ef4455}
+.wk-cross i::before{left:50%;top:-10px;bottom:-10px;width:3px;margin-left:-1.5px}
+.wk-cross i::after{top:50%;left:-10px;right:-10px;height:3px;margin-top:-1.5px}
+.wk-cross span{position:absolute;top:calc(env(safe-area-inset-top) + 150px);left:50%;transform:translateX(-50%);max-width:82%;text-align:center;padding:8px 14px;border-radius:16px;background:rgba(10,14,28,.78);color:#fff;font-size:13.5px;font-weight:600}
+.walkview.pinning .wk-top,.walkview.pinning .wk-side,.walkview.pinning .wk-ins{opacity:.35}
+.man3{filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))}
+
+/* ---------- assistant ---------- */
+.asrow{display:flex;gap:8px}.asin{flex:1;min-width:0;height:48px;border-radius:16px;border:1.5px solid var(--line);background:var(--solid2);padding:0 14px;font-size:16px;color:var(--ink)}
+.chips.wrap{display:flex;flex-wrap:wrap;gap:8px}
+
+.wk-meta{flex-wrap:wrap;row-gap:2px}.wk-meta b,.wk-meta>span{white-space:nowrap}
+
+.wxnote{position:absolute;left:12px;right:12px;top:calc(env(safe-area-inset-top) + 124px);z-index:19;border-radius:18px;padding:10px 14px;display:flex;flex-direction:column;gap:6px;font-size:13.5px;font-weight:600}
+.wxnote>div{display:flex;align-items:center;gap:8px}.wxnote svg{width:18px;height:18px;flex:none;color:var(--accent)}
+.seg3.scrollx button{white-space:nowrap;flex:none}
+
+#navctl .btn{white-space:nowrap;padding-left:14px;padding-right:14px}

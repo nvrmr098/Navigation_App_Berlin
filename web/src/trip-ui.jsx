@@ -4,6 +4,7 @@ import { tr, fmtTime } from './i18n.js';
 import { Ico, LineTag } from './ui.jsx';
 import { changeTip } from './carriage.js';
 import { ST } from './net.js';
+import { CoachGuide } from './coach.jsx';
 import { tripNotify, tripNotifyEnd } from './notify.js';
 
 /* polls the live trip every 25 s; keeps the last good data when a refresh fails */
@@ -87,7 +88,8 @@ export default function TripCard({ st, info, route, now, bridge }) {
                 </div>
               )}
               {cg.walkMin > 0 && <div className="tc-row small"><Ico n="walk" /><span>{tr('tripWalk', { n: cg.walkMin })}</span></div>}
-              {tip && <div className="tc-row small"><Ico n="train" /><span>{tip.text}</span></div>}
+              {tip && !tip.same && tip.ride && <CoachGuide pos={tip.ride} toward={route.legs[info.li].toward} color={route.legs[info.li].c} />}
+              {tip && tip.same && <div className="tc-row small"><Ico n="train" /><span>{tip.text}</span></div>}
             </div>
           )}
           {lk && <div className="tc-row small"><Ico n="info" /><span>{tr('crowd')}: <b>{tr(lk)}</b></span></div>}

@@ -49,7 +49,7 @@ export class MapEngine {
     cv.addEventListener('wheel', this.onWheel, { passive: false });
   }
   destroy() {
-    const cv = this.cv;
+    const cv = this.cv; this.dead = true;
     cv.removeEventListener('pointerdown', this.onDown); cv.removeEventListener('pointermove', this.onMove);
     cv.removeEventListener('pointerup', this.onUp); cv.removeEventListener('pointercancel', this.onCancel);
     cv.removeEventListener('wheel', this.onWheel);
@@ -80,7 +80,23 @@ export class MapEngine {
     const wx = (px - this.W / 2) / v.z + v.cx, wy = (py - this.H / 2) / v.z + v.cy;
     v.z = nz; v.cx = wx - (px - this.W / 2) / nz; v.cy = wy - (py - this.H / 2) / nz; this.schedule();
   }
-  zoomBy(f) { this.view.z = clamp(this.view.z * f, this.z0 * 0.6, this.z0 * 14); this.schedule(); }
+  /* smooth zoom: eases the scale over about half a second; repeated taps chain onto the running animation */
+  zoomBy(f, ms) {
+    const v = this.view, lo = this.z0 * 0.6, hi = this.z0 * 14;
+    const calm = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const base = this._zAnim ? this._zEnd : v.z, to = clamp(base * f, lo, hi);
+    if (calm || ms === 0) { v.z = to; this._zAnim = false; this.schedule(); return; }
+    this._zEnd = to; this._zFrom = v.z; this._zT0 = performance.now(); this._zMs = ms || 520;
+    if (this._zAnim) return;
+    this._zAnim = true;
+    const step = (now) => {
+      if (this.dead) { this._zAnim = false; return; }
+      const k = clamp((now - this._zT0) / this._zMs, 0, 1), e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+      v.z = this._zFrom + (this._zEnd - this._zFrom) * e; this.schedule();
+      if (k < 1) requestAnimationFrame(step); else this._zAnim = false;
+    };
+    requestAnimationFrame(step);
+  }
   centerOn(s, zoomMin, lift) {
     const v = this.view; v.cx = s.x; v.cy = s.y - lift / Math.max(v.z, this.z0 * 4); v.z = Math.max(v.z, this.z0 * zoomMin); this.schedule();
   }
@@ -232,6 +248,7 @@ export class MapEngine {
     const col = o.route.legs[clamp(R.legAt(o.path, o.marker), 0, o.route.legs.length - 1)].c, pul = 14 + 4 * Math.sin(Date.now() / 220);
     ctx.beginPath(); ctx.arc(x, y, pul, 0, 6.2832); ctx.fillStyle = 'rgba(10,108,255,.2)'; ctx.fill();
     ctx.beginPath(); ctx.arc(x, y, 9, 0, 6.2832); ctx.fillStyle = '#fff'; ctx.fill(); ctx.lineWidth = 4; ctx.strokeStyle = col; ctx.stroke();
+    if (this.vehicle3d) { ctx.beginPath(); ctx.arc(x, y, 3, 0, 6.2832); ctx.fillStyle = col; ctx.fill(); return; }
     // small train inside the ring
     ctx.fillStyle = col; ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x - 4, y - 5, 8, 9, 2); else ctx.rect(x - 4, y - 5, 8, 9); ctx.fill();
     ctx.fillStyle = '#fff'; ctx.fillRect(x - 2.6, y - 3.4, 5.2, 2.6); ctx.fillRect(x - 2.6, y + 0.6, 1.4, 1.4); ctx.fillRect(x + 1.2, y + 0.6, 1.4, 1.4);

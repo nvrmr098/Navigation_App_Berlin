@@ -5,6 +5,7 @@ import '@fontsource-variable/space-grotesk';
 import App from './App.jsx';
 import './styles.css';
 import './skins.css';
+import './v7.css';
 
 createRoot(document.getElementById('root')).render(<App />);
 

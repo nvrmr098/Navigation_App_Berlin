@@ -29,7 +29,7 @@ export function changeTip(a, b) {
   if (best[7]) return { same: true, text: tr('tipSame', { b: b.line }) };
   const f = where(best[3]), t = where(best[6]);
   return {
-    same: false,
+    same: false, ride: f, wait: t,
     text: tr('tipRide', { f: tr(f), t: tr(t), a: a.line, b: b.line }),
   };
 }

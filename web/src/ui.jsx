@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { R, INFO, lum } from './net.js';
 import { tr } from './i18n.js';
-import { geocode } from './walk.js';
+import { searchStops, searchStreets } from './search.js';
 
 const P = {
   map: <path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2zM9 4v14M15 6v14" />,
@@ -15,6 +15,7 @@ const P = {
   clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
   alert: <><path d="M12 3l10 18H2z" /><path d="M12 10v5M12 18v.5" /></>,
   ticket: <path d="M3 8a2 2 0 0 0 0 8v2a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1v-2a2 2 0 0 1 0-8V6a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1zM14 5v14" />,
+  drop: <path d="M12 3.5c3.6 4.3 5.8 7.2 5.8 10.2A5.8 5.8 0 0 1 6.2 13.7C6.2 10.7 8.4 7.8 12 3.5z" />,
   moon: <path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z" />,
   access: <><circle cx="12" cy="4.5" r="1.7" /><path d="M7 8.5h10M12 8.5v5l-3 6M12 13.5l3 6" /></>,
   globe: <><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18" /></>,
@@ -53,6 +54,14 @@ const P = {
   walk: <><circle cx="13" cy="4.5" r="1.8" /><path d="M9 21l2-6-2-3 2-5 3 2 2 3M13 9l-4 3" /></>,
   building: <path d="M4 21V5l8-2v18M12 8l8 2v11M3 21h18M7 9h2M7 13h2M7 17h2M15 14h2M15 18h2" />,
   map2: <path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z" />,
+  back: <path d="M15 5l-7 7 7 7" />,
+  door: <path d="M6 21V4a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v17M4 21h16M13.5 12h.01" />,
+  compass: <><circle cx="12" cy="12" r="9" /><path d="M15.6 8.4l-2.2 5-5 2.2 2.2-5z" /></>,
+  crosshair: <><circle cx="12" cy="12" r="6.5" /><path d="M12 2v5M12 17v5M2 12h5M17 12h5" /></>,
+  bus: <><rect x="4" y="3" width="16" height="15" rx="3" /><path d="M4 11h16M7 21v-3M17 21v-3" /><circle cx="8" cy="14.5" r=".7" fill="currentColor" /><circle cx="16" cy="14.5" r=".7" fill="currentColor" /></>,
+  tram: <><rect x="5" y="4" width="14" height="13" rx="3" /><path d="M5 11h14M8 21l2-4M16 21l-2-4M9 2l6 1.5" /></>,
+  street: <path d="M7 21L9 3M17 21L15 3M12 5v2M12 11v2M12 17v2" />,
+  eye: <><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" /></>,
 };
 
 
@@ -101,14 +110,18 @@ export function LineTag({ line, product }) {
   return <span className="bdg" style={{ background: product === 'subway' ? '#1670b8' : product === 'bus' ? '#a5027d' : product === 'tram' ? '#d6001c' : product === 'regional' ? '#e30613' : '#3d9a4a' }}>{line}</span>;
 }
 
-/* Input with a dropdown of station suggestions. The parent supplies the wrapper (icon, dot, clear button). */
+/* Input with a dropdown: stations, regional train, tram and bus stops, streets and places.
+ * Picking uses click (not pointer down): the list is gone after pointer down, and the click then used to land on the button underneath. */
 export function SearchBox({ value, onChange, onPick, placeholder, store, ddTop, places }) {
   const [open, setOpen] = useState(false);
-  const [pl, setPl] = useState([]);
+  const [stops, setStops] = useState({ re: [], tram: [], bus: [] });
+  const [streets, setStreets] = useState([]);
   useEffect(() => {
-    if (!places || !open || value.trim().length < 3) { setPl([]); return undefined; }
-    let dead = false; const t = setTimeout(() => { geocode(value).then((r) => { if (!dead) setPl(r); }).catch(() => {}); }, 400);
-    return () => { dead = true; clearTimeout(t); };
+    if (!places || !open || value.trim().length < 2) { setStops({ re: [], tram: [], bus: [] }); setStreets([]); return undefined; }
+    let dead = false;
+    const t1 = setTimeout(() => { searchStops(value, 3).then((r) => { if (!dead) setStops(r); }).catch(() => {}); }, 120);
+    const t2 = setTimeout(() => { searchStreets(value).then((r) => { if (!dead) setStreets(r); }).catch(() => {}); }, 420);
+    return () => { dead = true; clearTimeout(t1); clearTimeout(t2); };
   }, [value, open, places]);
   const inp = useRef(null);
 
@@ -118,20 +131,24 @@ export function SearchBox({ value, onChange, onPick, placeholder, store, ddTop, 
       const rec = [];
       store.rec.forEach((r) => r.forEach((n) => { const s = R.byName(n); if (s && rec.indexOf(s) < 0) rec.push(s); }));
       const mine = [];
-      if (store.home) mine.push([R.byName(store.home), 'home']);
-      if (store.work) mine.push([R.byName(store.work), 'work']);
+      if (store.home) mine.push([R.byName(store.home), 'home', store.homeAt]);
+      if (store.work) mine.push([R.byName(store.work), 'work', store.workAt]);
       store.fav.forEach((n) => mine.push([R.byName(n), 'star']));
       const groups = [];
-      const pins = mine.filter((m) => m[0]);
-      if (pins.length) groups.push([tr('saved'), pins.slice(0, 6).map((m) => m[0]), pins.slice(0, 6).map((m) => m[1])]);
+      const pins = mine.filter((m) => m[0] || m[2]);
+      if (pins.length) groups.push([tr('saved'), pins.slice(0, 6).map((m) => (m[2] ? { place: true, kind: 'street', name: m[1] === 'home' ? store.home : store.work, lat: m[2].lat, lng: m[2].lng } : m[0])), pins.slice(0, 6).map((m) => m[1])]);
       if (rec.length) groups.push([tr('recent'), rec.slice(0, 4)]);
       groups.push([tr('popular'), R.search('', 6)]);
       return groups.map((g) => ({ head: g[0], items: g[1], icons: g[2] }));
     }
-    return [{ head: null, items: R.search(value, 9) }];
-  }, [open, value, store.fav, store.rec, store.home, store.work, store.lang]);
+    return [{ head: null, items: R.search(value, 6) }];
+  }, [open, value, store.fav, store.rec, store.home, store.work, store.homeAt, store.workAt, store.lang]);
 
   const pick = (s) => { setOpen(false); inp.current && inp.current.blur(); onPick(s); };
+  const KIND = { re: ['regionalStops', 'train'], tram: ['netTram', 'tram'], bus: ['netBus', 'bus'] };
+  const extraGroups = places ? ['re', 'tram', 'bus'].filter((k) => stops[k].length).map((k) => ({ head: tr(KIND[k][0]), kind: k, items: stops[k] })) : [];
+  const first = () => { const r = R.search(value, 1)[0]; return r || (extraGroups[0] && extraGroups[0].items[0]) || streets[0]; };
+  const keep = (e) => e.preventDefault(); // keep the focus in the input while tapping an entry
 
   return (
     <>
@@ -139,33 +156,48 @@ export function SearchBox({ value, onChange, onPick, placeholder, store, ddTop, 
         ref={inp} type="text" value={value} placeholder={placeholder} autoComplete="off" enterKeyHint="search" spellCheck={false}
         onChange={(e) => { onChange(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 120)}
-        onKeyDown={(e) => { if (e.key === 'Enter') { const r = R.search(value, 1)[0]; if (r) pick(r); } }}
+        onBlur={() => setTimeout(() => setOpen(false), 220)}
+        onKeyDown={(e) => { if (e.key === 'Enter') { const r = first(); if (r) pick(r); } }}
       />
       {open && content && (
-        <div className="dd" style={{ top: ddTop }}>
+        <div className="dd" style={{ top: ddTop }} onMouseDown={keep}>
           {content.map((g, gi) => (
             <React.Fragment key={gi}>
               {g.head && <div className="hd">{g.head}</div>}
-              {g.items.length === 0 && !(places && pl.length) && <div className="it" style={{ color: 'var(--mute)' }}>{tr('noStation')}</div>}
+              {g.items.length === 0 && !(places && (streets.length || extraGroups.length)) && <div className="it" style={{ color: 'var(--mute)' }}>{tr('noStation')}</div>}
               {g.items.map((s, k) => (
-                <div className="it" key={g.head + s.i + k} onPointerDown={(e) => { e.preventDefault(); pick(s); }}>
+                <button type="button" className="it" key={g.head + (s.i != null ? s.i : s.name) + k} onClick={() => pick(s)}>
                   {g.icons && <Ico n={g.icons[k]} className="pl" />}
-                  <span className="nm">{s.name}</span><Badges s={s} max={3} />
-                </div>
+                  <span className="nm">{s.name}</span>{s.i != null ? <Badges s={s} max={3} /> : null}
+                </button>
               ))}
             </React.Fragment>
           ))}
-          {places && pl.length > 0 && <div className="hd">{tr('places')}</div>}
-          {places && pl.map((p, k) => (
-            <div className="it" key={'pl' + k} onPointerDown={(e) => { e.preventDefault(); pick(p); }}>
+          {extraGroups.map((g) => (
+            <React.Fragment key={g.kind}>
+              <div className="hd">{g.head}</div>
+              {g.items.map((s, k) => (
+                <button type="button" className="it" key={g.kind + k} onClick={() => pick(s)}>
+                  <Ico n={KIND[g.kind][1]} className="pl" /><span className="nm">{s.name}</span>
+                  <span className="mlines">{s.lines.slice(0, 3).map((l) => <LineTag key={l} line={l} product={g.kind === 're' ? 'regional' : g.kind} />)}</span>
+                </button>
+              ))}
+            </React.Fragment>
+          ))}
+          {places && streets.length > 0 && <div className="hd">{tr('places')}</div>}
+          {places && streets.map((p, k) => (
+            <button type="button" className="it" key={'pl' + k} onClick={() => pick(p)}>
               <Ico n="pinmark" className="pl" /><span className="nm">{p.name}{p.sub ? <small className="sub"> {p.sub}</small> : null}</span>
-            </div>
+            </button>
           ))}
         </div>
       )}
     </>
   );
+}
+
+export function BackBtn({ onClick, className }) {
+  return <button type="button" className={'backbtn' + (className ? ' ' + className : '')} aria-label={tr('back')} onClick={onClick}><Ico n="back" /></button>;
 }
 
 /* Local Berlin time, always Europe/Berlin whatever the phone says */
@@ -177,41 +209,6 @@ export function BerlinClock({ lang }) {
     <div className="bclock glass" aria-label={tr('berlinTime')}>
       <b>{f({ hour: '2-digit', minute: '2-digit' })}<i>{String(new Date(now).getSeconds()).padStart(2, '0')}</i></b>
       <small>{tr('berlin')} &middot; {f({ weekday: 'short', day: 'numeric', month: 'short' })}</small>
-    </div>
-  );
-}
-
-/* Start screen: logo, name, orbiting rings and a segmented progress bar. About 3.8 seconds. */
-export function Splash({ onDone }) {
-  const [pct, setPct] = useState(0);
-  const [out, setOut] = useState(false);
-  useEffect(() => {
-    const T = 3500, t0 = performance.now(); let raf = 0, closed = false;
-    const loop = (now) => {
-      const x = Math.min(1, (now - t0) / T), e = x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2;
-      setPct(Math.round(e * 100));
-      if (x < 1) raf = requestAnimationFrame(loop);
-      else if (!closed) { closed = true; setTimeout(() => setOut(true), 250); setTimeout(onDone, 800); }
-    };
-    raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
-  }, [onDone]);
-  const stage = pct < 28 ? 'splash1' : pct < 60 ? 'splash2' : pct < 92 ? 'splash3' : 'splash4';
-  const on = Math.round(pct / 100 * 28);
-  return (
-    <div className={'splash' + (out ? ' out' : '')} role="status" aria-label="Bearline">
-      <div className="sgrid" /><div className="sscan" />
-      <div className="sorb">
-        <svg className="ring r1" viewBox="0 0 200 200"><circle cx="100" cy="100" r="92" /></svg>
-        <svg className="ring r2" viewBox="0 0 200 200"><circle cx="100" cy="100" r="78" /></svg>
-        <svg className="ring r3" viewBox="0 0 200 200"><circle cx="100" cy="100" r="64" /></svg>
-        <span className="dot d1" /><span className="dot d2" />
-        <div className="slogo"><Logo size={104} id="sl" /></div>
-      </div>
-      <h1 className="sname">Bearline</h1>
-      <p className="stag">{tr('tagline')}</p>
-      <div className="sbar" aria-hidden="true">{Array.from({ length: 28 }, (_, i) => <i key={i} className={i < on ? 'on' : ''} />)}</div>
-      <div className="sinfo"><span>{tr(stage)}</span><b>{pct}%</b></div>
     </div>
   );
 }

@@ -5,8 +5,12 @@ import { Ico, Badge, SearchBox } from './ui.jsx';
 import { ST } from './net.js';
 import { board, journeys, cleanName } from './live.js';
 import { distKm, nearestStation } from './geo.js';
-import { geocode } from './walk.js';
 import { listen, speechLang, voiceAvailable } from './voice.js';
+import { journeyToRoute } from './journey-route.js';
+import { parseIntent, special } from './intent.js';
+import { resolveText, nearest } from './search.js';
+import { entrancesAround, entranceLabel } from './entrances.js';
+import { setOffsetFrom, resetCalib, offsetMeters } from './calibrate.js';
 
 const C0 = { lat: 52.5219, lng: 13.4115 };
 /* zone estimate: A = inside the Ringbahn (about 8 km around the centre), B = rest of Berlin (about 21 km), C = beyond. An estimate, not an official map. */
@@ -90,7 +94,7 @@ export function StationHelp({ names: n0, store }) {
   );
 }
 
-export function Alternatives({ nav, store, inline }) {
+export function Alternatives({ nav, store, inline, onStart }) {
   const [stepFree, setSf] = useState(!!store.step);
   const [st, setSt] = useState({ s: 'loading', list: [] });
   const a = nav.from && nav.from.name, b = nav.to && nav.to.name;
@@ -107,13 +111,16 @@ export function Alternatives({ nav, store, inline }) {
       {st.s === 'loading' && <p className="mute">{tr('alLoading')}</p>}
       {st.s === 'err' && <p className="mute">{tr('alNone')}</p>}
       {st.s === 'ok' && !st.list.length && <p className="mute">{tr('alNone')}</p>}
-      {st.list.map((j, i) => (
+      {st.list.map((j, i) => { const conv = onStart ? journeyToRoute(j) : null; return (
         <div key={i} className={'alt glass' + (j.warn ? ' warn' : '')}>
           <div className="hd"><b>{fmtTime(j.dep)} &rarr; {fmtTime(j.arr)}</b><span className="mute">{Math.round((j.arr - j.dep) / 60000)} {tr('min')}</span></div>
           <div className="vis">{j.legs.map((l, k) => <React.Fragment key={k}>{k > 0 && <span className="ar">&rsaquo;</span>}{l.walk ? <span className="wlk"><Ico n="walk" />{l.dist ? l.dist + ' m' : ''}</span> : <Badge line={l.line} big />}</React.Fragment>)}</div>
           {j.warn && <small className="wn"><Ico n="warn" />{tr('alDisr')}</small>}
+          {onStart && (conv && conv.route
+            ? <button className="btn sm altgo" onClick={() => onStart(conv.route)}><Ico n="nav" />{tr('start')}</button>
+            : <small className="altno"><Ico n="info" />{tr(conv && conv.reason === 'modes' ? 'altOtherModes' : 'altNoRoute')}</small>)}
         </div>
-      ))}
+      ); })}
       {!inline && <p className="mute">{tr('credLive')}</p>}
     </>
   );
@@ -150,34 +157,37 @@ export function NightInfo({ names: n0, store }) {
   );
 }
 
-/* voice + typed assistant: rule based, no cloud AI and no key inside the app */
-const normS = (s) => String(s).toLowerCase().replace(/straße|strasse/g, 'str').replace(/^(s\+u|s|u)\s+/, '').replace(/[^\p{L}\p{N}]/gu, '');
-export function parseIntent(text) {
-  const t = text.trim();
-  let m = t.match(/(?:from|von|ab|desde|da|de|से|ਤੋਂ|从|從)\s+(.+?)\s+(?:to|nach|zu|bis|a|à|al|verso|vers|तक|को|ਤੱਕ|到|去)\s+(.+)/i);
-  if (m) return { from: m[1], to: m[2] };
-  m = t.match(/(?:to|nach|zu|bis|a|à|al|vers|verso|navigate to|go to|bring mich zu|去|到|前往|往)\s*(.+)/i);
-  if (m) return { to: m[1] };
-  m = t.match(/(.+?)\s*(?:으로|로|에)\s*(?:가|갈)/); if (m) return { to: m[1] };
-  return { to: t.replace(/(जाना|जाओ|ਜਾਣਾ|ਜਾਓ)$/u, '').trim() };
+/* voice + typed assistant: rule based, no cloud AI and no key inside the app (sentence patterns live in intent.js) */
+export const parseIntentText = parseIntent;
+export async function resolvePlace(text, store) {
+  const sp = special(text);
+  if (sp && store) {
+    const nm = store[sp], at = store[sp + 'At'];
+    if (nm) { if (at) return { st: nearest(at), place: { place: true, name: nm, lat: at.lat, lng: at.lng } }; const st = ST.find((x) => x.name === nm); if (st) return { st }; return resolveText(nm); }
+    return { missing: sp };
+  }
+  return resolveText(text);
 }
-export async function resolvePlace(text) {
-  const n = normS(text); if (!n) return null;
-  const hit = ST.find((s) => normS(s.name) === n) || ST.find((s) => normS(s.name).indexOf(n) === 0) || ST.find((s) => normS(s.name).indexOf(n) > -1);
-  if (hit) return { st: hit };
-  try { const g = await geocode(text); if (g[0]) { let best = null, bd = 1e9; ST.forEach((s) => { const d = distKm(g[0].lat, g[0].lng, s.lat, s.lng); if (d < bd) { bd = d; best = s; } }); return { st: best, place: g[0] }; } } catch (e) { /* offline */ }
-  return null;
-}
-export function Assistant({ onGo, say, auto }) {
+export function Assistant({ onGo, say, auto, store, onCmd }) {
   const [txt, setTxt] = useState(''), [busy, setBusy] = useState(false), [listening, setListen] = useState(false), [msg, setMsg] = useState('');
   const run = async (q) => {
     const text = (q || txt).trim(); if (!text) return; setBusy(true); setMsg('');
-    const it = parseIntent(text); const to = await resolvePlace(it.to); const from = it.from ? await resolvePlace(it.from) : null;
+    const it = parseIntent(text);
+    if (it.type === 'theme' || it.type === 'page' || it.type === 'start') { setBusy(false); onCmd && onCmd(it); return; }
+    if (it.type === 'departures') {
+      const pl = it.place ? await resolvePlace(it.place, store) : null; setBusy(false);
+      if (!pl || !pl.st) { setMsg(tr('asNotFound') + ': ' + (it.place || text)); return; }
+      onCmd && onCmd({ type: 'departures', name: pl.st.name }); return;
+    }
+    if (it.type !== 'route' || !it.to) { setBusy(false); setMsg(tr('asNotFound') + ': ' + text); return; }
+    const to = await resolvePlace(it.to, store); const from = it.from ? await resolvePlace(it.from, store) : null;
     setBusy(false);
-    if (!to) { setMsg(tr('asNotFound') + ': ' + text); return; }
+    if (to && to.missing) { setMsg(tr('asNoSaved', { k: tr(to.missing) })); return; }
+    if (from && from.missing) { setMsg(tr('asNoSaved', { k: tr(from.missing) })); return; }
+    if (!to || !to.st) { setMsg(tr('asNotFound') + ': ' + it.to); return; }
     const out = to.place ? to.place.name : to.st.name; setMsg(tr('asDone') + ' ' + out);
     try { if (window.speechSynthesis) { const u = new SpeechSynthesisUtterance(tr('asDone') + ' ' + out); u.lang = speechLang(getLang()); window.speechSynthesis.speak(u); } } catch (e) { /* no tts */ }
-    onGo(from, to);
+    onGo(from && from.st ? from : null, to);
   };
   const mic = () => {
     setMsg('');
@@ -188,6 +198,7 @@ export function Assistant({ onGo, say, auto }) {
     }, () => setListen(true));
   };
   useEffect(() => { if (auto) setTimeout(mic, 350); /* eslint-disable-next-line */ }, []);
+  const ex = [tr('asEx1'), tr('asEx2'), tr('asEx3'), tr('asEx4')];
   return (
     <>
       <h3>{tr('asTitle')}</h3>
@@ -198,7 +209,93 @@ export function Assistant({ onGo, say, auto }) {
       {listening && <p className="mute">{tr('asListen')}</p>}
       {msg && <p>{msg}</p>}
       {!voiceAvailable() && !msg && <p className="mute">{tr('asKbHint')}</p>}
+      <div className="sec" style={{ marginTop: 14 }}>{tr('asTry')}</div>
+      <div className="chips wrap">{ex.map((e) => <button key={e} className="chip" onClick={() => { setTxt(e); run(e); }}>{e}</button>)}</div>
       <p className="mute">{tr('asNote')}</p>
     </>
+  );
+}
+
+/* entrances and exits of a station (OpenStreetMap). dest = optional place you want to reach: the exit nearest to it comes first */
+export function EntrancesModal({ name, lat, lng, dest, onWalk }) {
+  const [st, setSt] = useState({ s: 'loading', list: [] });
+  useEffect(() => {
+    let dead = false; setSt({ s: 'loading', list: [] });
+    entrancesAround(lat, lng, 300).then((l) => { if (!dead) setSt({ s: 'ok', list: l }); }).catch(() => { if (!dead) setSt({ s: 'err', list: [] }); });
+    return () => { dead = true; };
+  }, [lat, lng]);
+  const list = dest ? st.list.map((e) => ({ ...e, d: Math.round(distKm(dest.lat, dest.lng, e.lat, e.lng) * 1000) })).sort((a, b) => a.d - b.d) : st.list;
+  return (
+    <>
+      <h3>{tr('entTitle')}</h3>
+      <p><b>{name}</b>{dest ? <small className="mute"> {tr('entTo', { p: dest.name })}</small> : null}</p>
+      {st.s === 'loading' && <p className="mute">{tr('shChecking')}</p>}
+      {st.s === 'err' && <p className="mute">{tr('liveOff')}</p>}
+      {st.s === 'ok' && !list.length && <p className="mute">{tr('entNone')}</p>}
+      {list.slice(0, 10).map((e, i) => (
+        <div key={i} className={'plc ent' + (i === 0 ? ' best' : '')}>
+          <span className="pi"><Ico n="door" /></span>
+          <div className="tx"><b>{entranceLabel(e, tr)}{i === 0 && dest ? ' · ' + tr('entBest') : ''}</b>
+            <small>{e.d != null ? tr('entFromDest', { m: e.d }) : tr('entFrom', { m: e.m })}{e.wheelchair === 'yes' ? ' · ' + tr('entStepFree') : e.wheelchair === 'no' ? ' · ' + tr('entStairs') : ''}{e.level ? ' · ' + tr('entLevel', { l: e.level }) : ''}</small></div>
+          {onWalk && <button className="btn alt sm" onClick={() => onWalk(e)}><Ico n="walk" />{tr('walkTo')}</button>}
+        </div>
+      ))}
+      <p className="mute" style={{ marginTop: 10 }}>{tr('entCred')}</p>
+    </>
+  );
+}
+
+/* GPS calibration while riding: tell the app where you really are and it shifts every position by the difference */
+export function CalibModal({ route, raw, fix, onDone }) {
+  const list = (() => {
+    if (!route) return [];
+    const seen = {}, out = [];
+    route.legs.forEach((l) => l.stations.forEach((i) => { if (!seen[i]) { seen[i] = 1; out.push(ST[i]); } }));
+    const f = fix || raw; if (!f) return out.slice(0, 6);
+    return out.map((s) => ({ s, d: distKm(f.lat, f.lng, s.lat, s.lng) })).sort((a, b) => a.d - b.d).slice(0, 6).map((x) => x.s);
+  })();
+  const off = offsetMeters();
+  return (
+    <>
+      <h3>{tr('calTitle')}</h3>
+      <p className="mute">{tr('calHint')}</p>
+      <p>{off ? tr('calShift', { m: off }) : tr('calNone')}</p>
+      {!raw && <p className="mute">{tr('calNoFix')}</p>}
+      <div className="sec">{tr('calAt')}</div>
+      {list.map((s) => (
+        <button key={s.i} className="plc" disabled={!raw} onClick={() => { setOffsetFrom(raw, { lat: s.lat, lng: s.lng }); onDone(tr('calDone', { n: s.name })); }}>
+          <span className="pi"><Ico n="crosshair" /></span><div className="tx"><b>{s.name}</b><small>{tr('calHere')}</small></div>
+        </button>
+      ))}
+      {off > 0 && <button className="btn alt" style={{ width: '100%', marginTop: 10 }} onClick={() => { resetCalib(); onDone(tr('calReset')); }}><Ico n="refresh" />{tr('calResetBtn')}</button>}
+    </>
+  );
+}
+
+/* Notes while you look at a route: rain at the start point within the next hour (Open-Meteo, free, no key) and the late night warning */
+const wxCache = {};
+async function rainAt(lat, lng) {
+  const k = lat.toFixed(2) + ',' + lng.toFixed(2), hit = wxCache[k];
+  if (hit && Date.now() - hit.t < 10 * 60000) return hit.v;
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 7000);
+  try {
+    const r = await fetch('https://api.open-meteo.com/v1/forecast?latitude=' + lat.toFixed(3) + '&longitude=' + lng.toFixed(3) + '&minutely_15=precipitation&forecast_minutely_15=6&timezone=auto', { signal: ctl.signal });
+    const d = await r.json(), a = (d.minutely_15 && d.minutely_15.precipitation) || [];
+    const into = new Date().getMinutes() % 15; let v = null; // the first value is the current quarter hour
+    for (let i = 0; i < a.length; i++) { if (a[i] >= 0.1) { v = { in: Math.max(0, i * 15 - into) }; break; } }
+    wxCache[k] = { t: Date.now(), v }; return v;
+  } catch (e) { return null; } finally { clearTimeout(timer); }
+}
+export const isLateNight = (d) => { const h = +new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hourCycle: 'h23', timeZone: 'Europe/Berlin' }).format(d || new Date()); return h >= 1 && h < 4; };
+export function RouteNotes({ lat, lng }) {
+  const [rain, setRain] = useState(null);
+  useEffect(() => { let dead = false; setRain(null); if (lat != null) rainAt(lat, lng).then((v) => { if (!dead) setRain(v); }); return () => { dead = true; }; }, [lat, lng]);
+  const night = isLateNight();
+  if (!rain && !night) return null;
+  return (
+    <div className="wxnote glass">
+      {rain && <div><Ico n="drop" /><span>{rain.in <= 5 ? tr('rainNow') : tr('rainSoon', { n: rain.in })}</span></div>}
+      {night && <div><Ico n="moon" /><span>{tr('nightNote')}</span></div>}
+    </div>
   );
 }
