@@ -292,6 +292,13 @@ export function MorePage({ on, store, setStore, open, toast, gpsStatus }) {
         <Row ico="share" title={tr('shareTrip')} sub={tr('shareTripSub')} onClick={() => open('trip')} />
       </div>
       <div className="list glass">
+        <div className="skins" role="radiogroup" aria-label={tr('skinTitle')}>
+          {['classic', 'neon', 'modern'].map((k) => (
+            <button key={k} role="radio" aria-checked={(store.skin || 'classic') === k} className={'skin sk-' + k + ((store.skin || 'classic') === k ? ' on' : '')} onClick={() => setStore((s) => ({ ...s, skin: k }))}>
+              <i /><b>{tr('skin_' + k)}</b><small>{tr('skin_' + k + '_sub')}</small>
+            </button>
+          ))}
+        </div>
         <div className="li"><span className="ico"><Ico n="moon" /></span><span className="tx">{tr('appearance')}</span>
           <div className="seg3">{['auto', 'light', 'dark'].map((t) => <button key={t} className={store.theme === t ? 'on' : ''} onClick={() => setStore((s) => ({ ...s, theme: t }))}>{tr('theme_' + t)}</button>)}</div>
         </div>

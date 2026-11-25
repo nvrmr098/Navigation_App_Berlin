@@ -14,7 +14,7 @@ import { setLang, tr, cnt, fmtTime } from './i18n.js';
 import { TripLive } from './trip-ui.jsx';
 
 const loadStore = () => {
-  const base = { theme: 'auto', lang: 'en', home: '', work: '', fav: [], rec: [], lbl: true, step: false, real3d: true, awake: true, haptics: true };
+  const base = { theme: 'auto', skin: 'classic', lang: 'en', home: '', work: '', fav: [], rec: [], lbl: true, step: false, real3d: true, awake: true, haptics: true };
   try {
     const raw = localStorage.getItem('br1') || localStorage.getItem('bl1');
     if (raw) { const o = JSON.parse(raw); Object.assign(base, o); if (o.dark && !o.theme) base.theme = 'dark'; }
@@ -79,13 +79,14 @@ export default function App() {
     const apply = () => {
       const dark = store.theme === 'dark' || (store.theme === 'auto' && mqd.matches);
       document.body.classList.toggle('dark', dark);
-      const tc = document.querySelector('meta[name=theme-color]'); if (tc) tc.content = dark ? '#090b12' : '#f2f4fa';
+      document.body.classList.toggle('skin-neon', store.skin === 'neon'); document.body.classList.toggle('skin-modern', store.skin === 'modern');
+      const tc = document.querySelector('meta[name=theme-color]'); if (tc) tc.content = getComputedStyle(document.body).getPropertyValue('--bg').trim() || (dark ? '#090b12' : '#f2f4fa');
       try { window.AndroidBridge && window.AndroidBridge.setTheme && window.AndroidBridge.setTheme(dark); } catch (e) { /* not in the app */ }
       if (eng.current) eng.current.schedule();
       if (viewRef.current === 'generic' && scene.current && ov.current) scene.current.build(ov.current, dark);
     };
     apply(); mqd.addEventListener('change', apply); return () => mqd.removeEventListener('change', apply);
-  }, [store.theme]);
+  }, [store.theme, store.skin]);
 
   useEffect(() => { document.documentElement.lang = store.lang; }, [store.lang]);
 

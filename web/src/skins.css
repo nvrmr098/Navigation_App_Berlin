@@ -1,0 +1,87 @@
+/* Theme styles. Classic is the default look (styles.css). body.skin-neon and body.skin-modern restyle it.
+ * Each skin has a light and a dark set, so the Appearance switch (auto, light, dark) keeps working. */
+
+/* ---------- Neon: light = Neon Light, dark = Neon Night ---------- */
+body.skin-neon{
+  --bg:#f3f0ff;--surface:rgba(255,255,255,.74);--solid:#ffffff;--solid2:#eee9ff;
+  --ink:#14102e;--mute:#6a6590;--line:rgba(122,77,255,.16);
+  --accent:#7a4dff;--accent2:#00c8e6;--grad:linear-gradient(135deg,#8b5cff 0%,#22e6ff 100%);
+  --good:#0fb56a;--warn:#f5a524;--bad:#ef4455;
+  --map:#e8e2ff;--map2:#faf8ff;
+  --shadow:0 14px 40px rgba(122,77,255,.22),0 2px 8px rgba(122,77,255,.1);
+}
+body.skin-neon.dark{
+  --bg:#070a14;--surface:rgba(18,24,48,.72);--solid:#0e1328;--solid2:#161c3a;
+  --ink:#f2f5ff;--mute:#9fb0d8;--line:rgba(160,190,255,.2);
+  --accent:#22e6ff;--accent2:#8b5cff;--grad:linear-gradient(135deg,#8b5cff 0%,#22e6ff 100%);
+  --good:#2dff9a;--warn:#ffd27a;--bad:#ff5c7a;
+  --map:#070a14;--map2:#131938;
+  --shadow:0 16px 48px rgba(0,0,0,.6),0 0 28px rgba(34,230,255,.12);
+}
+body.skin-neon .glass{border-color:color-mix(in srgb,var(--accent) 32%,transparent)}
+body.skin-neon .btn{color:#070a14;box-shadow:0 8px 28px color-mix(in srgb,var(--accent2) 45%,transparent)}
+body.skin-neon .btn.alt{color:var(--ink);box-shadow:none}
+body.skin-neon #dock button.on{color:#070a14}
+body.skin-neon #dock .thumb{box-shadow:0 0 26px color-mix(in srgb,var(--accent) 55%,transparent)}
+body.skin-neon #navbar .bar i{box-shadow:0 0 14px var(--accent)}
+body.skin-neon .rc.sel{box-shadow:0 0 34px color-mix(in srgb,var(--accent) 35%,transparent),var(--shadow)}
+body.skin-neon .livedot{box-shadow:0 0 10px var(--good)}
+body.skin-neon .man3 span{background:linear-gradient(135deg,#8b5cff,#22e6ff);color:#070a14}
+
+/* ---------- Modern: map first, solid cards, lime accent, tactile ---------- */
+body.skin-modern{
+  --bg:#edeaf7;--surface:#ffffff;--solid:#ffffff;--solid2:#f1f2f7;
+  --ink:#11131a;--mute:#6b6f80;--line:rgba(17,19,26,.08);
+  --accent:#5b4bff;--accent2:#c8ff3d;--grad:#5b4bff;
+  --good:#18b26b;--warn:#f5a524;--bad:#ef4455;
+  --map:#f4f1ea;--map2:#fbf9f4;
+  --shadow:0 10px 30px rgba(17,19,26,.12);
+}
+body.skin-modern.dark{
+  --bg:#0f1118;--surface:#181b25;--solid:#181b25;--solid2:#222633;
+  --ink:#f3f5fb;--mute:#9a9fb3;--line:rgba(255,255,255,.08);
+  --accent:#8b7dff;--accent2:#c8ff3d;--grad:#8b7dff;
+  --good:#3ddc97;--warn:#ffc15a;--bad:#ff6b7a;
+  --map:#12141c;--map2:#1b1e29;
+  --shadow:0 12px 34px rgba(0,0,0,.5);
+}
+body.skin-modern .glass{-webkit-backdrop-filter:none;backdrop-filter:none;border:0}
+body.skin-modern .btn{background:#c8ff3d;color:#11131a;box-shadow:0 10px 26px rgba(160,210,20,.4);font-weight:700}
+body.skin-modern .btn.alt{background:var(--solid2);color:var(--ink);box-shadow:none;border:0}
+body.skin-modern #dock{background:#11131a;border:0;border-radius:36px}
+body.skin-modern #dock .thumb{background:#c8ff3d;box-shadow:none}
+body.skin-modern #dock button{color:#b8bccb}
+body.skin-modern #dock button.on{color:#11131a}
+body.skin-modern #navbar{background:#11131a;color:#fff;border-radius:32px}
+body.skin-modern #navbar .l2{color:#b8bccb}
+body.skin-modern #navbar .bar{background:rgba(255,255,255,.14)}
+body.skin-modern #navbar .bar i{background:#c8ff3d}
+body.skin-modern .sheet,body.skin-modern .modal .box{border-radius:38px 38px 0 0}
+body.skin-modern .chip{background:var(--solid);border:0;box-shadow:0 4px 14px rgba(17,19,26,.08)}
+body.skin-modern .rc{border:0;box-shadow:0 6px 20px rgba(17,19,26,.08)}
+body.skin-modern .rc.sel{background:#11131a;color:#fff;box-shadow:var(--shadow)}
+body.skin-modern .rc.sel .mute,body.skin-modern .rc.sel small{color:#b8bccb}
+body.skin-modern .fab{background:var(--solid);box-shadow:0 6px 18px rgba(17,19,26,.12);border:0}
+body.skin-modern .tripcard{border-radius:28px}
+body.skin-modern .tc-eta b{color:var(--ink)}
+body.skin-modern .seg3 button.on{background:#11131a;color:#fff}
+body.skin-modern .man3 span{background:#5b4bff}
+
+/* headline and number font for the two new styles */
+body.skin-neon h1,body.skin-neon h2,body.skin-neon h3,body.skin-neon #navbar .l1,body.skin-neon .tc-eta b,body.skin-neon .bt,body.skin-neon .btn,body.skin-neon #dock button,
+body.skin-modern h1,body.skin-modern h2,body.skin-modern h3,body.skin-modern #navbar .l1,body.skin-modern .tc-eta b,body.skin-modern .bt,body.skin-modern .btn,body.skin-modern #dock button{
+  font-family:"Space Grotesk Variable","Space Grotesk",Inter,system-ui,sans-serif;letter-spacing:-.01em}
+
+/* theme picker in More */
+.skins{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:14px 16px;border-bottom:1px solid var(--line)}
+.skin{display:flex;flex-direction:column;align-items:flex-start;gap:3px;padding:8px 8px 10px;border-radius:18px;background:var(--solid2);border:2px solid transparent;text-align:left;transition:transform .2s var(--spring),border-color .2s}
+.skin:active{transform:scale(.96)}
+.skin.on{border-color:var(--accent)}
+.skin i{display:block;width:100%;height:54px;border-radius:12px;margin-bottom:4px;position:relative;overflow:hidden}
+.skin i::after{content:"";position:absolute;left:8px;right:8px;bottom:7px;height:10px;border-radius:5px;background:rgba(255,255,255,.85)}
+.skin.sk-classic i{background:linear-gradient(135deg,#5b6cff,#22c4ff)}
+.skin.sk-neon i{background:radial-gradient(circle at 70% 30%,#22e6ff 0,transparent 55%),#0a0e22;box-shadow:inset 0 0 0 1px rgba(34,230,255,.6)}
+.skin.sk-modern i{background:linear-gradient(135deg,#edeaf7 55%,#c8ff3d 55%)}
+.skin.sk-modern i::after{background:#11131a}
+.skin b{font-size:13.5px}
+.skin small{font-size:11px;color:var(--mute);line-height:1.25}
