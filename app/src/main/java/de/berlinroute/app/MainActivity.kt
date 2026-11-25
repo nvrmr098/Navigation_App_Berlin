@@ -8,7 +8,12 @@ import java.net.HttpURLConnection
 import java.net.URL
 import android.content.ActivityNotFoundException
 import android.Manifest
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Intent
+import android.os.Build
+import androidx.core.app.NotificationCompat
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.speech.RecognizerIntent
@@ -95,6 +100,17 @@ class MainActivity : AppCompatActivity() {
 
         @JavascriptInterface
         fun hasVoice(): Boolean = true
+
+        /** Ongoing trip notification (visible on the lock screen); the page updates it as the trip goes on. */
+        @JavascriptInterface
+        fun tripNotify(title: String, text: String) {
+            runOnUiThread { showTripNotification(title, text) }
+        }
+
+        @JavascriptInterface
+        fun tripNotifyEnd() {
+            runOnUiThread { tripActive = false; getSystemService(NotificationManager::class.java)?.cancel(TRIP_NOTIF_ID) }
+        }
 
         @JavascriptInterface
         fun keepScreenOn(on: Boolean) {
@@ -202,6 +218,39 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private var tripActive = false
+
+    private val notifPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* shown on the next update when granted */ }
+
+    private fun showTripNotification(title: String, text: String) {
+        val nm = getSystemService(NotificationManager::class.java) ?: return
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            return
+        }
+        nm.createNotificationChannel(NotificationChannel(TRIP_CHANNEL, "Trip", NotificationManager.IMPORTANCE_LOW))
+        val open = PendingIntent.getActivity(
+            this, 0, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val n = NotificationCompat.Builder(this, TRIP_CHANNEL)
+            .setSmallIcon(android.R.drawable.ic_menu_directions)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setCategory(NotificationCompat.CATEGORY_NAVIGATION)
+            .setContentIntent(open)
+            .build()
+        tripActive = true
+        nm.notify(TRIP_NOTIF_ID, n)
+    }
+
     private fun proxy(request: WebResourceRequest): WebResourceResponse? = try {
         val c = URL(request.url.toString()).openConnection() as HttpURLConnection
         c.connectTimeout = 8000
@@ -220,6 +269,8 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val LIVE_HOST = "v6.vbb.transport.rest"
+        private const val TRIP_CHANNEL = "trip"
+        private const val TRIP_NOTIF_ID = 42
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -228,7 +279,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
-        web.onPause()
+        if (!tripActive) web.onPause()
         super.onPause()
     }
 

@@ -150,8 +150,13 @@ export async function journeys(fromName, toName, o) {
       dep: Date.parse(l.departure || l.plannedDeparture || ''), arr: Date.parse(l.arrival || l.plannedArrival || ''),
       delay: typeof l.departureDelay === 'number' ? Math.round(l.departureDelay / 60) : 0, cancelled: !!l.cancelled,
       dist: l.distance || 0, dir: cleanName(l.direction || ''),
+      arrDelay: typeof l.arrivalDelay === 'number' ? Math.round(l.arrivalDelay / 60) : 0,
+      depPlatform: l.departurePlatform || l.plannedDeparturePlatform || '', arrPlatform: l.arrivalPlatform || l.plannedArrivalPlatform || '',
+      planArr: Date.parse(l.plannedArrival || l.arrival || ''), planDep: Date.parse(l.plannedDeparture || l.departure || ''),
+      load: l.loadFactor || '',
     }));
+    const lifts = (j.remarks || []).map((r) => strip(r.summary || r.text || '')).filter((t) => /aufzug|fahrstuhl|elevator|lift\b|rolltreppe|escalator/i.test(t));
     const warn = (j.remarks || []).some((r) => r.type === 'warning' || r.type === 'status' && /stör|ausfall|sperr|disrupt|cancel|closure/i.test(r.summary || r.text || '')) || legs.some((l) => l.cancelled);
-    return { legs, dep: legs.length ? legs[0].dep : 0, arr: legs.length ? legs[legs.length - 1].arr : 0, warn };
+    return { legs, dep: legs.length ? legs[0].dep : 0, arr: legs.length ? legs[legs.length - 1].arr : 0, warn, lifts: lifts.slice(0, 3) };
   }).filter((j) => j.legs.length);
 }

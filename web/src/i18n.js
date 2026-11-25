@@ -5,6 +5,7 @@ import HI from './lang-hi.js';
 import PA from './lang-pa.js';
 import ZH from './lang-zh.js';
 import KO from './lang-ko.js';
+import TRIP from './i18n-trip.js';
 
 export const LANGS = [
   { id: 'en', name: 'English', en: 'English' },
@@ -282,7 +283,8 @@ const FR = {
   tipRide: 'Montez dans la {f} du train {a}, au plus près de votre correspondance. Attendez ensuite dans la {t} du quai le train {b}.',
 };
 
-const DICT = { en: EN, de: { ...DE, ...EXTRA.de }, es: { ...ES, ...EXTRA.es }, it: { ...IT, ...EXTRA.it }, fr: { ...FR, ...EXTRA.fr }, hi: HI, pa: PA, zh: ZH, ko: KO };
+Object.assign(EN, TRIP.en);
+const DICT = { en: EN, de: { ...DE, ...EXTRA.de, ...TRIP.de }, es: { ...ES, ...EXTRA.es }, it: { ...IT, ...EXTRA.it }, fr: { ...FR, ...EXTRA.fr }, hi: HI, pa: PA, zh: ZH, ko: KO };
 let cur = 'en';
 try { const s = JSON.parse(localStorage.getItem('bl1') || '{}'); if (s.lang && DICT[s.lang]) cur = s.lang; } catch (e) { /* ignore */ }
 

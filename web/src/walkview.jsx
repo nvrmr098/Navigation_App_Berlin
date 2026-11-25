@@ -9,7 +9,11 @@ const BLANK = (dark) => ({ version: 8, sources: {}, layers: [{ id: 'bg', type: '
 const fmtM = (m) => (m >= 1000 ? (m / 1000).toFixed(1) + ' km' : Math.round(m / 10) * 10 + ' m');
 
 /* Street map walking view: live position, route line, direction check (green right way, red wrong way). */
-export default function WalkView({ from, to, title, dark, onClose, onArrive }) {
+const MAN_SVG = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13" cy="4.5" r="1.9" fill="currentColor"/><path d="M9 21l2-6-2-3 2-5 3 2 2 3M13 9l-4 3"/></svg>';
+
+/* Street map walking view: a walking man (no blue dot), route line, direction check (green right way, red wrong way).
+ * toStation: when the walk ends at a station, the view hands over to train navigation once you are within 50 m. */
+export default function WalkView({ from, to, title, dark, onClose, onArrive, toStation }) {
   const box = useRef(null), map = useRef(null), me = useRef(null), route = useRef(null), prev = useRef(null), offCount = useRef(0), follow = useRef(true), arrived = useRef(false);
   const [r, setR] = useState(null);
   const [rem, setRem] = useState(null);
@@ -17,6 +21,7 @@ export default function WalkView({ from, to, title, dark, onClose, onArrive }) {
   const posRef = useRef(null), hdgRef = useRef({ move: null, gps: null, compass: null, t: 0 });
   const [gps, setGps] = useState('searching');
   const [live, setLive] = useState(null);
+  const [headUp, setHeadUp] = useState(false), headUpRef = useRef(false), near = useRef(0), manCone = useRef(null);
 
   const fetchRoute = async (a) => { const x = await walkRoute(a, to); route.current = x; setR(x); setRem(x.m); const src = map.current && map.current.getSource && map.current.getSource('walk'); if (src) src.setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: x.pts } }); return x; };
 
@@ -43,7 +48,7 @@ export default function WalkView({ from, to, title, dark, onClose, onArrive }) {
         m.addLayer({ id: 'walk-line', type: 'line', source: 'walk', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#4f6bff', 'line-width': 6, 'line-dasharray': [0.2, 1.6] } });
         const el = document.createElement('div'); el.className = 'wk-dest'; el.innerHTML = '<b></b>';
         new ml.Marker({ element: el }).setLngLat([to.lng, to.lat]).addTo(m);
-        const mm = document.createElement('div'); mm.className = 'me3'; mm.innerHTML = '<i></i><b></b>';
+        const mm = document.createElement('div'); mm.className = 'man3'; mm.innerHTML = '<u></u><span>' + MAN_SVG + '</span>'; manCone.current = mm.querySelector('u');
         me.current = new ml.Marker({ element: mm }).setLngLat([from.lng, from.lat]).addTo(m);
         const b = new ml.LngLatBounds([from.lng, from.lat], [from.lng, from.lat]); b.extend([to.lng, to.lat]);
         m.resize();
@@ -66,6 +71,9 @@ export default function WalkView({ from, to, title, dark, onClose, onArrive }) {
     if (heading == null) { setIns({ key: 'wait', rel: 0, state: 'turn' }); return; }
     const a = along(x.pts, pos), tgt = lookAhead(x.pts, a.i, pos, 25);
     setIns(instruction(heading, bearing(pos, tgt)));
+    const mp = map.current;
+    if (mp && headUpRef.current) { try { mp.easeTo({ bearing: heading, duration: 500 }); } catch (e) { /* map not ready */ } }
+    if (manCone.current) manCone.current.style.transform = 'rotate(' + Math.round(heading - (mp && mp.getBearing ? mp.getBearing() : 0)) + 'deg)';
   };
   useEffect(() => {
     const onOri = (e) => { const c = e.webkitCompassHeading != null ? e.webkitCompassHeading : (e.absolute || e.type === 'deviceorientationabsolute') && e.alpha != null ? (360 - e.alpha) % 360 : null; if (c != null) hdgRef.current.compass = c; };
@@ -87,7 +95,10 @@ export default function WalkView({ from, to, title, dark, onClose, onArrive }) {
       if (prev.current) { if (meters(prev.current, pos) >= 6) { h.move = bearing(prev.current, pos); h.t = Date.now(); prev.current = pos; } } else prev.current = pos;
       if (c.heading != null && !Number.isNaN(c.heading) && (c.speed == null || c.speed > 0.8)) { h.gps = c.heading; h.t = Date.now(); }
       posRef.current = pos; recompute();
-      if (meters(pos, to) < 35) { arrived.current = true; setIns(null); onArrive && onArrive(); return; }
+      // within 50 m of the station: leave walking mode and start the train navigation (two fixes in a row, GPS jitter safe)
+      const radius = toStation ? 50 : 35;
+      near.current = meters(pos, to) < radius ? near.current + 1 : 0;
+      if (near.current >= (toStation ? 2 : 1)) { arrived.current = true; setIns(null); onArrive && onArrive(); return; }
       offCount.current = a.d > 45 ? offCount.current + 1 : 0;
       if (offCount.current >= 3) { offCount.current = 0; fetchRoute(pos); }
       if (follow.current && map.current) map.current.easeTo({ center: [pos.lng, pos.lat], duration: 600 });
@@ -119,6 +130,7 @@ export default function WalkView({ from, to, title, dark, onClose, onArrive }) {
         </div>
       )}
       <div className="wk-bot">
+        <button className={'btn alt sq2' + (headUp ? ' on' : '')} aria-label={tr('headUp')} onClick={() => { const v = !headUpRef.current; headUpRef.current = v; setHeadUp(v); if (!v && map.current) map.current.easeTo({ bearing: 0, duration: 400 }); }}><Ico n="locate" /></button>
         {live && <button className="btn alt" onClick={() => { follow.current = true; if (map.current) map.current.easeTo({ center: [live.lng, live.lat], zoom: 17, duration: 500 }); }}><Ico n="locate" />{tr('recenter')}</button>}
         <button className="btn" onClick={() => { arrived.current = true; onArrive && onArrive(); }}><Ico n="check" />{tr('imHere')}</button>
       </div>

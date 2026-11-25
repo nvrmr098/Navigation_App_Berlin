@@ -141,7 +141,7 @@ export class MapEngine {
       ctx.beginPath(); ctx.arc(x, y, 4, 0, 6.2832); ctx.fillStyle = this.css.accent; ctx.fill();
     }
     if (overlay && overlay.marker != null) this.drawMarker();
-    if (this.user) this.drawUser();
+    if (this.user && !(this.overlay && this.navMode)) this.drawUser();
     this.hit = visible;
   }
 
@@ -232,6 +232,9 @@ export class MapEngine {
     const col = o.route.legs[clamp(R.legAt(o.path, o.marker), 0, o.route.legs.length - 1)].c, pul = 14 + 4 * Math.sin(Date.now() / 220);
     ctx.beginPath(); ctx.arc(x, y, pul, 0, 6.2832); ctx.fillStyle = 'rgba(10,108,255,.2)'; ctx.fill();
     ctx.beginPath(); ctx.arc(x, y, 9, 0, 6.2832); ctx.fillStyle = '#fff'; ctx.fill(); ctx.lineWidth = 4; ctx.strokeStyle = col; ctx.stroke();
+    // small train inside the ring
+    ctx.fillStyle = col; ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x - 4, y - 5, 8, 9, 2); else ctx.rect(x - 4, y - 5, 8, 9); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.fillRect(x - 2.6, y - 3.4, 5.2, 2.6); ctx.fillRect(x - 2.6, y + 0.6, 1.4, 1.4); ctx.fillRect(x + 1.2, y + 0.6, 1.4, 1.4);
     this.arrow(x + Math.cos(m.ang) * 15, y + Math.sin(m.ang) * 15, m.ang, 6, col);
   }
 }

@@ -147,8 +147,8 @@ export class RealMap3D {
 
   setUser(fix) {
     if (!this.me) return;
-    if (!fix) { this.meEl.style.display = 'none'; return; }
-    this.meEl.style.display = 'block'; this.me.setLngLat([fix.lng, fix.lat]);
+    // no blue dot while navigating: the train marker shows where you are
+    this.meEl.style.display = 'none';
   }
 
   recenter() { this.follow = true; }
