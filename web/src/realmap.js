@@ -4,6 +4,8 @@
 import { ST } from './net.js';
 import { geoAt } from './geo.js';
 import { tuneMap } from './mapstyle.js';
+import { Vehicle2D } from './vehicle2d.js';
+import { vehicleKind } from './avatar3d.js';
 
 const STYLE_LIGHT = 'https://tiles.openfreemap.org/styles/liberty';
 const STYLE_DARK = 'https://tiles.openfreemap.org/styles/liberty'; // same detailed style as light, recoloured by tuneMap
@@ -15,6 +17,7 @@ export class RealMap3D {
     this.container = container; this.opts = opts; this.map = null; this.loaded = false; this.dead = false;
     this.bearing = 0; this.lastJump = 0; this.follow = true; this.veh = null; this.me = null; this.ml = null;
     this.tilt = !(opts && opts.flat); this.route = null;
+    this.v3d = null; this.kind = 'S'; this.col = '#3d9a4a'; this.walkLeg = false; this.lastT = 0;
   }
 
   async init(overlay) {
@@ -131,7 +134,10 @@ export class RealMap3D {
     const ml = this.ml, lg = overlay.route.legs[0];
     const el = document.createElement('div'); el.className = 'veh3';
     el.innerHTML = '<i class="pulse"></i><b style="background:' + lg.c + '">' + lg.line + '</b>';
-    this.vehEl = el; this.veh = new ml.Marker({ element: el, pitchAlignment: 'viewport', rotationAlignment: 'viewport' }).setLngLat(this.map.getCenter()).addTo(this.map);
+    // the 3D train, tram or bus rides on the route; the line badge floats above it
+    this.kind = vehicleKind(lg.line, lg.p); this.col = lg.c;
+    try { this.v3d = new Vehicle2D(this.container, 112); el.classList.add('has3d'); } catch (e) { this.v3d = null; }
+    this.vehEl = el; this.veh = new ml.Marker({ element: el, pitchAlignment: 'viewport', rotationAlignment: 'viewport', offset: this.v3d ? [0, -54] : [0, 0] }).setLngLat(this.map.getCenter()).addTo(this.map);
     const me = document.createElement('div'); me.className = 'me3'; me.innerHTML = '<i></i><b></b>'; me.style.display = 'none';
     this.meEl = me; this.me = new ml.Marker({ element: me }).setLngLat(this.map.getCenter()).addTo(this.map);
   }
@@ -139,6 +145,9 @@ export class RealMap3D {
   setLeg(overlay, li, walking) {
     if (!this.vehEl) return; const lg = overlay.route.legs[li];
     const b = this.vehEl.querySelector('b'); b.textContent = walking ? '\u{1F6B6}' : lg.line; b.style.background = walking ? '#6b7690' : lg.c;
+    this.kind = vehicleKind(lg.line, lg.p); this.col = lg.c; this.walkLeg = !!walking;
+    if (walking && this.v3d) this.v3d.hide();
+    if (this.veh) this.veh.setOffset(this.v3d && !walking ? [0, -54] : [0, 0]);
   }
 
   /* 2D (flat, north up) or 3D (tilted, heading up) */
@@ -171,6 +180,16 @@ export class RealMap3D {
       const h = this.container.clientHeight || 600;
       this.map.jumpTo({ center: [g.lng, g.lat], bearing: this.tilt ? this.bearing : 0, pitch: this.tilt ? 62 : 0, zoom: this.tilt ? this.zoomTilt || 16.2 : this.zoomFlat || 16, padding: { top: Math.round(h * (this.tilt ? 0.3 : 0.18)), bottom: 0, left: 0, right: 0 } });
     }
+    this.driveTrain(g, now);
+  }
+
+  // place the 3D vehicle on the screen position of the route point and turn it the way the route runs on the screen
+  driveTrain(g, now) {
+    const v = this.v3d; if (!v || !this.map) return;
+    if (this.walkLeg) { v.hide(); return; }
+    const r = g.bearing * Math.PI / 180, k = 0.0003, p0 = this.map.project([g.lng, g.lat]), p1 = this.map.project([g.lng + k * Math.sin(r) / Math.cos(g.lat * Math.PI / 180), g.lat + k * Math.cos(r)]);
+    const dt = this.lastT ? Math.min(0.06, Math.max(0.001, (now - this.lastT) / 1000)) : 0.016; this.lastT = now;
+    v.update(p0.x, p0.y, Math.atan2(p1.y - p0.y, p1.x - p0.x), this.kind, this.col, dt);
   }
 
   setUser(fix) {
@@ -181,7 +200,7 @@ export class RealMap3D {
 
   recenter() { this.follow = true; }
   resize() { if (this.map) this.map.resize(); }
-  destroy() { this.dead = true; try { if (this.map) this.map.remove(); } catch (e) { /* ignore */ } this.map = null; this.loaded = false; }
+  destroy() { this.dead = true; try { if (this.v3d) this.v3d.destroy(); } catch (e) { /* ignore */ } this.v3d = null; try { if (this.map) this.map.remove(); } catch (e) { /* ignore */ } this.map = null; this.loaded = false; }
 }
 
 // offline style used only by the automated screenshot test (no network needed)

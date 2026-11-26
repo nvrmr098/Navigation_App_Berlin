@@ -12,7 +12,9 @@ import { SHARE_API, VOICE_ASSISTANT } from './config.js';
 import { POPULAR } from './popular.js';
 import { NavPage, MorePage, NearbyPage, ModalContent } from './pages.jsx';
 import { EntrancesModal, CalibModal, RouteNotes } from './extras.jsx';
-import { applyPos, hasCalib, offsetMeters } from './calibrate.js';
+import { applyPos, hasCalib, offsetMeters, askMotion } from './calibrate.js';
+import { noteRide, mayWalkBack, identifyTrain, initRide } from './ride.js';
+import { bgTrack } from './bgloc.js';
 import { Vehicle2D } from './vehicle2d.js';
 import { vehicleKind } from './avatar3d.js';
 import { setLang, tr, cnt, fmtTime } from './i18n.js';
@@ -86,6 +88,14 @@ export default function App() {
 
   const say = useCallback((t) => { setToast(t); clearTimeout(toastT.current); toastT.current = setTimeout(() => setToast(''), 2400); }, []);
 
+  // which train is it: look at the departure board around the time the person left the stop
+  const startIdent = (li, departT) => {
+    const o = ov.current; if (!o) return;
+    identifyTrain(o, li, departT).then((t) => { if (live.current.on && ov.current === o && t) live.current.train = t; }).catch(() => { /* no live data: the plan stays */ });
+  };
+  // the position is also wanted while the app is in the background (Android service)
+  const releaseBg = () => { const L = live.current; if (L.bg) { L.bg = false; bgTrack(false); } };
+
   // routes as shown: a clearly faster combination with bus, tram or regional trains goes first (the S/U-only routes stay below it)
   const mixKey = mixKeyOf(nav, when);
   const navV = mix && mix.key === mixKey ? { ...nav, routes: [mix.route, ...nav.routes] } : nav;
@@ -148,9 +158,11 @@ export default function App() {
         L.gpsIdx = sn.idx; L.offKm = sn.km;
         const rt = ov.current.route, tol = (rt.legs[clamp(R.legAt(ov.current.path, Math.min(sn.idx, ov.current.path.pts.length - 1.001)), 0, rt.legs.length - 1)] || {}).tol || 0.35;
         if (sn.km > tol) { if (!L.offSince) L.offSince = Date.now(); } else L.offSince = 0;
+        const ev = noteRide(L, ov.current, f, sn);
+        if (ev) startIdent(ev.li, ev.departT);
       }
     }, (s) => setGpsStatus(s));
-    return () => { window.removeEventListener('resize', onResize); e.destroy(); live.current.on = false; trk.current.stop(); if (real.current) real.current.destroy(); };
+    return () => { window.removeEventListener('resize', onResize); e.destroy(); live.current.on = false; releaseBg(); trk.current.stop(); if (real.current) real.current.destroy(); };
   }, [say]);
   useEffect(() => { const e = eng.current; if (!e) return; e.filter = filter; e.selected = selected; e.schedule(); }, [filter, selected]);
   useEffect(() => { if (page === 'pMap' && eng.current) eng.current.resize(); }, [page]);
@@ -220,7 +232,7 @@ export default function App() {
     const ret = mode === 'show' && fromPageRef.current !== 'pMap' ? fromPageRef.current : null;
     dropVehicle();
     if (shareRef.current) { const sh = shareRef.current; sendPos(sh, true).finally(() => stopShare(true)); }
-    const L = live.current; L.on = false; L.phase = 'idle';
+    const L = live.current; L.on = false; L.phase = 'idle'; releaseBg();
     ov.current = null; eng.current.overlay = null; eng.current.navMode = false; resetView(); setMode('idle'); setPaused(false); setFinished(false);
     keepAwake(false);
     if (!locateRef.current) { eng.current.user = null; trk.current.stop(); }
@@ -289,7 +301,7 @@ export default function App() {
         L.alerted = '';
       } else if (fin) {
         title = tr('arrived'); sub = ST[r.to].name; hud = ST[r.to].name;
-        if (!L.done) { L.done = true; if (storeRef.current.haptics) haptic([300, 120, 300]); setFinished(true); }
+        if (!L.done) { L.done = true; releaseBg(); if (storeRef.current.haptics) haptic([300, 120, 300]); setFinished(true); }
       } else {
         L.done = false;
         const dNext = L.fix && gps ? ' · ' + fmtDist(distKm(L.fix.lat, L.fix.lng, nextSt.lat, nextSt.lng)) : '';
@@ -300,15 +312,16 @@ export default function App() {
         if (left <= 1 && L.alerted !== 'leg' + li) { L.alerted = 'leg' + li; if (storeRef.current.haptics) haptic([180, 90, 180]); if (gps) beep(); }
         if (left > 1 && L.alerted === 'leg' + li) L.alerted = '';
       }
-      if (gps && L.fix && L.gpsIdx < 0.4 && L.offKm * 1000 > 80 && !fin) {
+      if (gps && L.fix && L.gpsIdx < 0.4 && L.offKm * 1000 > 80 && !fin && mayWalkBack(L)) {
         L.farSince = L.farSince || Date.now();
         if (Date.now() - L.farSince > 6000) { // walked away from the first station: back to walking mode
-          dropVehicle(); const sA = ST[o.path.pts[0].st], f0 = L.fix; L.on = false; L.farSince = 0; ov.current = null; e.overlay = null; e.navMode = false; resetView(); setMode('idle');
+          dropVehicle(); releaseBg(); const sA = ST[o.path.pts[0].st], f0 = L.fix; L.on = false; L.farSince = 0; ov.current = null; e.overlay = null; e.navMode = false; resetView(); setMode('idle');
           setWalk({ from: { lat: f0.lat, lng: f0.lng }, to: { lat: sA.lat, lng: sA.lng, name: sA.name }, title: tr('walkToStation', { st: sA.name }), route: r }); return;
         }
       } else L.farSince = 0;
-      if (gps && L.fix && L.offSince && Date.now() - L.offSince > 5000 && !fin) off = { atStart: L.gpsIdx < 0.4, m: Math.round(L.offKm * 1000), name: ST[o.path.pts[0].st].name };
-      pushInfo({ lines: [lg.line], title, sub, pct: Math.round(100 * p / last), hud, intro: null, off, est, dir: gps ? L.dir || null : null, alert: !fin && !walking && left <= 1 ? endSt.name : null, li, left, nextName: nextSt.name, nextIdx: nextPt.st, endName: endSt.name, fin, walking });
+      if (gps && L.fix && L.offSince && Date.now() - L.offSince > 5000 && !fin) off = { atStart: L.gpsIdx < 0.4 && !L.reached && !L.boarded, fast: !!(L.boarded && L.spd != null && L.spd > 5), m: Math.round(L.offKm * 1000), name: ST[o.path.pts[0].st].name };
+      const tn = L.train && L.train.li === li && L.train.line ? { line: L.train.line, dir: L.train.dir, left: fmtTime(L.train.when), diff: L.train.diffMin, other: !!L.train.other, same: L.train.line === lg.line } : null;
+      pushInfo({ lines: [lg.line], title, sub, pct: Math.round(100 * p / last), hud, intro: null, off, est, train: gps ? tn : null, dir: gps ? L.dir || null : null, alert: !fin && !walking && left <= 1 ? endSt.name : null, li, left, nextName: nextSt.name, nextIdx: nextPt.st, endName: endSt.name, fin, walking });
       const legKey = li + (walking ? 'w' : '');
       if (L.legKey !== legKey) { L.legKey = legKey; L.leg = li; if (real.current) real.current.setLeg(o, li, walking); }
       if (viewRef.current === 'generic' && scene.current) scene.current.render(o, p);
@@ -322,12 +335,14 @@ export default function App() {
     const sA = ST[r.legs[0].stations[0]]; let pos = nav.fromPlace && !nav.fromPlace.me ? nav.fromPlace : null;
     try { const f = applyPos(trk.current.last || await getPositionOnce()); pos = { lat: f.lat, lng: f.lng }; } catch (e) { /* no position */ }
     if (pos && meters(pos, sA) > 50) { setModal(null); setPage('pMap'); setWalk({ from: pos, to: { lat: sA.lat, lng: sA.lng, name: sA.name }, title: tr('walkToStation', { st: sA.name }), route: r }); return; }
-    startNav(r, 'gps');
+    startNav(r, 'gps', !!pos);
   };
-  const startNav = (r, src) => {
+  const startNav = (r, src, reached) => {
     if (!r.alt) remember(r); const o = makeOverlay(r); o.reveal = r.legs.map(() => 0); ov.current = o; eng.current.overlay = o; eng.current.navMode = true;
     const gen = !!r.generic;
-    const L = live.current; Object.assign(L, { on: true, phase: gen ? 'live' : 'intro', source: src, p: 0, target: 0, play: true, follow: true, t0: performance.now(), last: 0, adv: null, gpsIdx: 0, offKm: 0, offSince: 0, lastFixAt: 0, alerted: '', leg: -1, legKey: '', done: false });
+    const L = live.current; Object.assign(L, { on: true, phase: gen ? 'live' : 'intro', source: src, p: 0, target: 0, play: true, follow: true, t0: performance.now(), last: 0, adv: null, gpsIdx: 0, offKm: 0, offSince: 0, lastFixAt: 0, alerted: '', leg: -1, legKey: '', done: false, farSince: 0, ...initRide() });
+    if (reached) L.reached = true;
+    if (src === 'gps' && !L.bg) { L.bg = true; bgTrack(true, ST[r.from].name + ' > ' + ST[r.to].name, ''); }
     setSource(src); setFilter('both'); setPaused(false); setFinished(false); setPage('pMap'); setSelected(-1); setModal(null);
     if (gen) {
       // no intro animation on the street map: go straight to live guidance
@@ -413,6 +428,12 @@ export default function App() {
     if (n.i === dest) { say(tr('alreadyThere')); return; }
     const rs = R.routes(n.i, dest); if (!rs.length) { say(tr('noRouteHere')); return; }
     L.on = false; startNav(rs[0], 'gps'); say(tr('newRouteFrom') + ' ' + n.name);
+  };
+
+  // automatic calibration while navigating: the averaged GPS position moves onto the route when it is close to it (always when riding fast)
+  const calibAuto = {
+    getRaw: () => live.current.raw,
+    snap: (A, moving) => { const o = ov.current; if (!o) return null; const sn = snapToRoute(o, A.lat, A.lng, null), g = geoAt(o, sn.idx); return { lat: g.lat, lng: g.lng, m: sn.km * 1000, max: moving ? 160 : 35 }; },
   };
 
   // ---------- test hook: #from=A&to=B&act=show|start&gps=1&p=pNav&f=S&sel=Name&zoom=2&skip=1&adv=3&d3=300&mock=1&dark=1 ----------
@@ -620,7 +641,7 @@ export default function App() {
         )}
         {mode === 'show' && ov.current && <RouteNotes lat={ST[ov.current.route.from].lat} lng={ST[ov.current.route.from].lng} />}
         {mode === 'live' && source === 'gps' && !info.fin && info.nextName && ov.current && (
-          <TripLive info={info} route={ov.current.route} onData={(st, li) => { const L = live.current; L.legEnd = st.trip ? st.trip.legEnd : 0; L.legEndLi = li; }} />
+          <TripLive info={info} route={ov.current.route} onData={(st, li) => { const L = live.current; L.legEnd = (L.train && L.train.li === li && L.train.endArr) || (st.trip ? st.trip.legEnd : 0); L.legEndLi = li; }} />
         )}
         {gpsNav && (
           <div className={'gpschip glass ' + (source === 'gps' ? (info.est ? 'weak' : gpsStatus) : 'demo')}><i />{source === 'gps' ? (info.est ? tr('noGpsEst') : tr('chip_' + gpsStatus)) : tr('demoRide')}</div>
@@ -631,6 +652,13 @@ export default function App() {
         {mode === 'live' && info.alert && (
           <div className="offbanner glass"><Ico n="bell" /><span>{tr('getoffBanner', { st: info.alert })}</span></div>
         )}
+        {mode === 'live' && info.train && !info.off && (
+          <div className="trainchip glass" data-testid="trainchip">
+            <Badge line={info.train.line} />
+            <span className="tcx"><b>{tr('trainOn', { line: info.train.line, dir: info.train.dir })}</b>
+              <small>{tr('trainLeft', { t: info.train.left })}{info.train.diff >= 1 ? ' · ' + tr('trainEarlier', { n: info.train.diff }) : info.train.diff <= -1 ? ' · ' + tr('trainLater', { n: -info.train.diff }) : ''}{info.train.other ? ' · ' + tr('trainOther') : ''}</small></span>
+          </div>
+        )}
         {mode === 'live' && info.dir && !info.off && (
           <div className={'dirchip ' + info.dir}><Ico n={info.dir === 'ok' ? 'check' : 'uturn'} /><span>{info.dir === 'ok' ? tr('dirOk') : tr('dirBadTrain')}</span></div>
         )}
@@ -640,7 +668,7 @@ export default function App() {
           <div className="alert glass">
             {info.off.atStart
               ? <><b>{tr('headTo', { name: info.off.name })}</b><span>{tr('fromStart', { d: fmtDist(info.off.m / 1000) })}</span></>
-              : <><b>{tr('offRoute')}</b><span>{tr('offRouteSub', { d: fmtDist(info.off.m / 1000) })}</span><button className="btn sm" onClick={reroute}><Ico n="nav" />{tr('newRouteHere')}</button></>}
+              : <><b>{tr('offRoute')}</b><span>{tr(info.off.fast ? 'offTrainSub' : 'offRouteSub', { d: fmtDist(info.off.m / 1000) })}</span><button className="btn sm" onClick={reroute}><Ico n="nav" />{tr('newRouteHere')}</button></>}
           </div>
         )}
 
@@ -675,7 +703,7 @@ export default function App() {
             {mode === 'live' && source === 'demo' && <button className="btn alt" onClick={onPlay}><Ico n={finished || paused ? 'play' : 'pause'} />{finished ? tr('replay') : paused ? tr('resume') : tr('pause')}</button>}
             {mode === 'live' && source === 'demo' && <button className="btn alt sq2" aria-label="Speed" onClick={() => setMult((m) => (m >= 4 ? 1 : m * 2))}>{mult}x</button>}
             {mode === 'live' && source === 'demo' && <button className="btn" onClick={onNext}><Ico n="next" />{tr('nextShort')}</button>}
-            {mode === 'live' && source === 'gps' && <button className={'btn alt sq2' + (hasCalib() ? ' on' : '')} aria-label={tr('calibrate')} onClick={() => setModal('calib')}><Ico n="crosshair" /></button>}
+            {mode === 'live' && source === 'gps' && <button className={'btn alt sq2' + (hasCalib() ? ' on' : '')} aria-label={tr('calibrate')} onClick={() => { askMotion(); setModal('calib'); }}><Ico n="crosshair" /></button>}
             {mode === 'live' && source === 'gps' && <button className="btn alt sq2" aria-label={tr('shareTrip')} onClick={shareTrip}><Ico n="share" /></button>}
             {mode === 'live' && source === 'gps' && <button className="btn" onClick={onRecenter}><Ico n="locate" />{tr('recenter')}</button>}
             {mode === 'show' && <button className="btn" style={{ flex: 2 }} onClick={() => beginGps(ov.current.route)}><Ico n="nav" />{tr('startNav')}</button>}
@@ -732,7 +760,7 @@ export default function App() {
           {modal === 'ent' && entInfo
             ? <EntrancesModal name={entInfo.name} lat={entInfo.lat} lng={entInfo.lng} dest={entInfo.dest} onWalk={(en) => { const f = live.current.fix || trk.current.last; if (!f) { say(tr('gpsFail')); return; } closeModal(); setPage('pMap'); setWalk({ from: { lat: f.lat, lng: f.lng }, to: { lat: en.lat, lng: en.lng, name: entInfo.name }, title: entInfo.name }); }} />
             : modal === 'calib'
-              ? <CalibModal route={ov.current && ov.current.route} raw={live.current.raw} fix={live.current.fix} onDone={(msg) => { const L = live.current; if (L.raw) { L.fix = applyPos(L.raw); if (ov.current) { const sn = snapToRoute(ov.current, L.fix.lat, L.fix.lng, null); L.gpsIdx = sn.idx; L.offKm = sn.km; L.offSince = 0; } } closeModal(); say(msg); }} />
+              ? <CalibModal route={ov.current && ov.current.route} raw={live.current.raw} fix={live.current.fix} auto={calibAuto} onDone={(msg) => { const L = live.current; if (L.raw) { L.fix = applyPos(L.raw); if (ov.current) { const sn = snapToRoute(ov.current, L.fix.lat, L.fix.lng, null); L.gpsIdx = sn.idx; L.offKm = sn.km; L.offSince = 0; } } closeModal(); say(msg); }} />
               : <ModalContent kind={modal} store={store} setStore={setStore} board={boardName} boardOpts={boardOpts} when={when} say={say} nav={navV} stNames={[nav.from && nav.from.name, nav.to && nav.to.name, nearName].filter((x, i, a) => x && a.indexOf(x) === i)} onAssist={assistGo} onCmd={onCmd}
               onFav={(n, at) => { closeModal(); setPage('pMap'); const s = R.byName(n); if (s) { filterFor(s); selectStation(s.i, true); } else if (at) showPlace({ name: n, lat: at.lat, lng: at.lng }); }}
               onLang={(id) => { setStore((o) => ({ ...o, lang: id })); closeModal(); }}
@@ -745,7 +773,7 @@ export default function App() {
       {walk && (
         <React.Suspense fallback={null}>
           <WalkView key={walk.title} say={say} toStation={!!walk.route} from={walk.from} to={walk.to} title={walk.title} dark={document.body.classList.contains('dark')}
-            onClose={() => setWalk(null)} onArrive={() => { const w = walk; setWalk(null); if (w.route) startNav(w.route, 'gps'); }} />
+            onClose={() => setWalk(null)} onArrive={() => { const w = walk; setWalk(null); if (w.route) startNav(w.route, 'gps', true); }} />
         </React.Suspense>
       )}
       {!booted && <Splash onDone={() => setBooted(true)} />}

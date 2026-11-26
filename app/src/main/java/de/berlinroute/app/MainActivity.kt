@@ -15,6 +15,8 @@ import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import android.content.pm.PackageManager
+import android.location.Location
+import java.util.Locale
 import android.os.Bundle
 import android.speech.RecognizerIntent
 import org.json.JSONObject
@@ -112,6 +114,27 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread { tripActive = false; getSystemService(NotificationManager::class.java)?.cancel(TRIP_NOTIF_ID) }
         }
 
+        /** Keeps the GPS running while the app is in the background (trip or walk). The page pushes the fixes back through window.__nativeFix. */
+        @JavascriptInterface
+        fun startTracking(title: String, text: String) {
+            runOnUiThread {
+                if (!hasLocationPermission()) return@runOnUiThread
+                try {
+                    val i = Intent(this@MainActivity, TrackService::class.java)
+                    i.putExtra("title", title)
+                    i.putExtra("text", text)
+                    ContextCompat.startForegroundService(this@MainActivity, i)
+                } catch (e: Exception) {
+                    // the system did not allow a foreground service right now
+                }
+            }
+        }
+
+        @JavascriptInterface
+        fun stopTracking() {
+            runOnUiThread { stopService(Intent(this@MainActivity, TrackService::class.java)) }
+        }
+
         @JavascriptInterface
         fun keepScreenOn(on: Boolean) {
             runOnUiThread {
@@ -133,6 +156,7 @@ class MainActivity : AppCompatActivity() {
         web = WebView(this)
         root.addView(web, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         setContentView(root)
+        current = this
         ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
             val bars = insets.getInsets(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.ime()
@@ -269,8 +293,24 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val LIVE_HOST = "v6.vbb.transport.rest"
-        private const val TRIP_CHANNEL = "trip"
-        private const val TRIP_NOTIF_ID = 42
+        const val TRIP_CHANNEL = "trip"
+        const val TRIP_NOTIF_ID = 42
+
+        @Volatile
+        private var current: MainActivity? = null
+
+        /** A GPS fix from TrackService goes into the page, also while the app is in the background. */
+        fun pushFix(l: Location) {
+            val a = current ?: return
+            val speed = if (l.hasSpeed()) l.speed.toDouble() else -1.0
+            val bearing = if (l.hasBearing()) l.bearing.toDouble() else -1.0
+            val js = String.format(
+                Locale.US,
+                "window.__nativeFix&&window.__nativeFix(%.7f,%.7f,%.1f,%.2f,%.1f,%d)",
+                l.latitude, l.longitude, l.accuracy.toDouble(), speed, bearing, l.time
+            )
+            a.runOnUiThread { a.web.evaluateJavascript(js, null) }
+        }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -279,16 +319,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
-        if (!tripActive) web.onPause()
+        if (!tripActive && !TrackService.running) web.onPause()
         super.onPause()
     }
 
     override fun onResume() {
         super.onResume()
         web.onResume()
+        // ask for a fresh position at once, so the dot does not stay where it stopped
+        web.evaluateJavascript("window.__bgResume&&window.__bgResume()", null)
     }
 
     override fun onDestroy() {
+        if (current === this) current = null
         web.destroy()
         super.onDestroy()
     }
