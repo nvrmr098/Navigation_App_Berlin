@@ -24,7 +24,7 @@ import { journeyToRoute } from './journey-route.js';
 import { placeOf } from './trip.js';
 
 const loadStore = () => {
-  const base = { theme: 'auto', skin: 'classic', lang: 'en', home: '', work: '', homeAt: null, workAt: null, fav: [], rec: [], lbl: true, step: false, real3d: true, awake: true, haptics: true };
+  const base = { theme: 'auto', skin: 'classic', lang: 'en', home: '', work: '', homeAt: null, workAt: null, fav: [], rec: [], lbl: true, step: false, real3d: true, awake: true, haptics: true, bike: false, reduceMotion: false };
   try {
     const raw = localStorage.getItem('br1') || localStorage.getItem('bl1');
     if (raw) { const o = JSON.parse(raw); Object.assign(base, o); if (o.dark && !o.theme) base.theme = 'dark'; }
@@ -56,6 +56,7 @@ export default function App() {
   const [boardName, setBoardName] = useState('');
   const [page, setPage] = useState('pMap');
   const [filter, setFilter] = useState('both');
+  const [optOpen, setOptOpen] = useState(false);
   const [selected, setSelected] = useState(-1);
   const [mq, setMq] = useState('');
   const [nav, setNav] = useState({ from: null, to: null, routes: [], sel: 0 });
@@ -118,6 +119,8 @@ export default function App() {
     // eslint-disable-next-line
   }, [mixKey]);
 
+  // reduce motion and bike mode steer the mascot in the walking view
+  useEffect(() => { document.body.classList.toggle('rm', !!store.reduceMotion); document.body.classList.toggle('bike', !!store.bike); }, [store.reduceMotion, store.bike]);
   // ---------- persistence and theme ----------
   useEffect(() => { try { localStorage.setItem('bl1', JSON.stringify(store)); } catch (e) { /* ignore */ } if (eng.current) { eng.current.lbl = !!store.lbl; eng.current.schedule(); } }, [store]);
   useEffect(() => {
@@ -607,27 +610,38 @@ export default function App() {
               {mq && <button className="clr" aria-label={tr('clear')} onClick={() => setMq('')}><Ico n="close" /></button>}
             </div>
           )}
-          <div className="trow">
-            <div className="seg glass netseg">
-              {[['rail', 'netRail'], ['tram', 'netTram'], ['bus', 'netBus'], ['re', 'netRe']].map((n) => <button key={n[0]} className={net === n[0] ? 'on' : ''} onClick={() => { setNet(n[0]); setSelected(-1); }}>{tr(n[1])}</button>)}
-            </div>
+          <div className="trow2">
+            {net === 'rail' ? (
+              <div className="sbox">
+                <Ico n="search" className="ic" />
+                <SearchBox value={mq} onChange={setMq} store={store} ddTop={58} placeholder={tr('searchStation')} places
+                  onPick={(s) => { if (s.place) { showPlace(s); return; } setMq(s.name); filterFor(s); selectStation(s.i, true); }} />
+                {mq && <button className="clr" aria-label={tr('clear')} onClick={() => setMq('')}><Ico n="close" /></button>}
+              </div>
+            ) : <div className="netname glass">{tr({ tram: 'netTram', bus: 'netBus', re: 'netRe' }[net])}</div>}
+            <button className={'optbtn glass' + (net !== 'rail' || filter !== 'both' ? ' dot' : '') + (optOpen ? ' on' : '')} aria-label={tr('mapOpts')} aria-expanded={optOpen} onClick={() => setOptOpen((o) => !o)}><Ico n="sliders" /></button>
             <BerlinClock lang={store.lang} />
           </div>
-          {net === 'rail' && (
-            <div className="seg glass" id="filters">
-              <button className={filter === 'both' ? 'on' : ''} onClick={() => setFilter('both')}>S + U</button>
-              <button className={filter === 'S' ? 'on' : ''} onClick={() => setFilter('S')}><span className="bdg S" style={{ background: '#3d9a4a' }}>S</span><span className="fl">S-Bahn</span></button>
-              <button className={filter === 'U' ? 'on' : ''} onClick={() => setFilter('U')}><span className="bdg U" style={{ background: '#1670b8' }}>U</span><span className="fl">U-Bahn</span></button>
+          {optOpen && (
+            <div className="optpop glass" role="group" aria-label={tr('mapOpts')}>
+              <small>{tr('mapNetwork')}</small>
+              <div className="seg netseg">
+                {[['rail', 'netRail'], ['tram', 'netTram'], ['bus', 'netBus'], ['re', 'netRe']].map((n) => <button key={n[0]} className={net === n[0] ? 'on' : ''} onClick={() => { setNet(n[0]); setSelected(-1); if (n[0] !== 'rail') setOptOpen(false); }}>{tr(n[1])}</button>)}
+              </div>
+              {net === 'rail' && (<>
+                <small>{tr('mapLines')}</small>
+                <div className="seg" id="filters">
+                  <button className={filter === 'both' ? 'on' : ''} onClick={() => setFilter('both')}>S + U</button>
+                  <button className={filter === 'S' ? 'on' : ''} onClick={() => setFilter('S')}><span className="bdg S" style={{ background: '#3d9a4a' }}>S</span><span className="fl">S-Bahn</span></button>
+                  <button className={filter === 'U' ? 'on' : ''} onClick={() => setFilter('U')}><span className="bdg U" style={{ background: '#1670b8' }}>U</span><span className="fl">U-Bahn</span></button>
+                </div>
+              </>)}
             </div>
           )}
-          {net === 'rail' && !navActive && (
-            <div className="pinrow pop">
-              {POPULAR.map((pl) => <button key={pl.name} className="chip glass" onClick={() => showPlace(pl)}><Ico n="pinmark" className="s" />{pl.name}</button>)}
-            </div>
-          )}
-          {net === 'rail' && mineChips.length > 0 && (
-            <div className="pinrow">
+          {net === 'rail' && !navActive && !optOpen && (
+            <div className="pinrow one">
               {mineChips.map((m) => <button key={m[0] + m[1]} className="chip glass" onClick={() => { const s = R.byName(m[1]), at = (m[0] === 'home' || m[0] === 'work') && store[m[0] + 'At']; if (s) { filterFor(s); selectStation(s.i, true); } else if (at) showPlace({ name: m[1], lat: at.lat, lng: at.lng }); }}><Ico n={m[0]} className="s" />{m[1]}</button>)}
+              {POPULAR.map((pl) => <button key={pl.name} className="chip glass" onClick={() => showPlace(pl)}><Ico n="pinmark" className="s" />{pl.name}</button>)}
             </div>
           )}
         </div>
@@ -672,12 +686,6 @@ export default function App() {
           </div>
         )}
 
-        {!navActive && net === 'rail' && (
-          <div id="legend" className="glass">
-            {filter !== 'U' && <span><i />S-Bahn</span>}
-            {filter !== 'S' && <span><i className="u" />U-Bahn</span>}
-          </div>
-        )}
 
         <div id="fabs" hidden={net !== 'rail'} style={sel ? { bottom: 'calc(var(--dock) + 296px)' } : navActive ? { bottom: 'calc(var(--dock) + 100px)' } : undefined}>
           {mode === 'live' && <button className="fab glass lg" aria-label="2D / 3D" onClick={() => toggle3d()}><Ico n={(gen ? !tilt : view === '2d') ? 'cube' : 'flat'} />{(gen ? !tilt : view === '2d') ? '3D' : '2D'}</button>}
@@ -761,7 +769,7 @@ export default function App() {
             ? <EntrancesModal name={entInfo.name} lat={entInfo.lat} lng={entInfo.lng} dest={entInfo.dest} onWalk={(en) => { const f = live.current.fix || trk.current.last; if (!f) { say(tr('gpsFail')); return; } closeModal(); setPage('pMap'); setWalk({ from: { lat: f.lat, lng: f.lng }, to: { lat: en.lat, lng: en.lng, name: entInfo.name }, title: entInfo.name }); }} />
             : modal === 'calib'
               ? <CalibModal route={ov.current && ov.current.route} raw={live.current.raw} fix={live.current.fix} auto={calibAuto} onDone={(msg) => { const L = live.current; if (L.raw) { L.fix = applyPos(L.raw); if (ov.current) { const sn = snapToRoute(ov.current, L.fix.lat, L.fix.lng, null); L.gpsIdx = sn.idx; L.offKm = sn.km; L.offSince = 0; } } closeModal(); say(msg); }} />
-              : <ModalContent kind={modal} store={store} setStore={setStore} board={boardName} boardOpts={boardOpts} when={when} say={say} nav={navV} stNames={[nav.from && nav.from.name, nav.to && nav.to.name, nearName].filter((x, i, a) => x && a.indexOf(x) === i)} onAssist={assistGo} onCmd={onCmd}
+              : <ModalContent kind={modal} store={store} setStore={setStore} board={boardName} boardOpts={boardOpts} when={when} say={say} nav={navV} stNames={[nav.from && nav.from.name, nav.to && nav.to.name, nearName].filter((x, i, a) => x && a.indexOf(x) === i)} onAssist={assistGo} onCmd={onCmd} onModal={setModal}
               onFav={(n, at) => { closeModal(); setPage('pMap'); const s = R.byName(n); if (s) { filterFor(s); selectStation(s.i, true); } else if (at) showPlace({ name: n, lat: at.lat, lng: at.lng }); }}
               onLang={(id) => { setStore((o) => ({ ...o, lang: id })); closeModal(); }}
               onApplyTime={(w) => { setWhen(w); closeModal(); }}

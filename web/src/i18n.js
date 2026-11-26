@@ -8,6 +8,7 @@ import KO from './lang-ko.js';
 import TRIP from './i18n-trip.js';
 import V7 from './i18n-v7.js';
 import V10 from './i18n-v10.js';
+import V11 from './i18n-v11.js';
 
 export const LANGS = [
   { id: 'en', name: 'English', en: 'English' },
@@ -285,8 +286,8 @@ const FR = {
   tipRide: 'Montez dans la {f} du train {a}, au plus près de votre correspondance. Attendez ensuite dans la {t} du quai le train {b}.',
 };
 
-Object.assign(EN, TRIP.en, V7.en, V10.en);
-const DICT = { en: EN, de: { ...DE, ...EXTRA.de, ...TRIP.de, ...V7.de, ...V10.de }, es: { ...ES, ...EXTRA.es }, it: { ...IT, ...EXTRA.it }, fr: { ...FR, ...EXTRA.fr }, hi: HI, pa: PA, zh: ZH, ko: KO };
+Object.assign(EN, TRIP.en, V7.en, V10.en, V11.en);
+const DICT = { en: EN, de: { ...DE, ...EXTRA.de, ...TRIP.de, ...V7.de, ...V10.de, ...V11.de }, es: { ...ES, ...EXTRA.es }, it: { ...IT, ...EXTRA.it }, fr: { ...FR, ...EXTRA.fr }, hi: HI, pa: PA, zh: ZH, ko: KO };
 let cur = 'en';
 try { const s = JSON.parse(localStorage.getItem('bl1') || '{}'); if (s.lang && DICT[s.lang]) cur = s.lang; } catch (e) { /* ignore */ }
 

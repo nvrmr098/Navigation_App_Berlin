@@ -7,6 +7,7 @@ import './styles.css';
 import './skins.css';
 import './v7.css';
 import './v10.css';
+import './v11.css';
 import { installBgLocation } from './bgloc.js';
 
 installBgLocation();

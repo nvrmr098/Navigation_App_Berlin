@@ -12,7 +12,7 @@ import { bgTrack } from './bgloc.js';
 const BLANK = (dark) => ({ version: 8, sources: {}, layers: [{ id: 'bg', type: 'background', paint: { 'background-color': dark ? '#1b2335' : '#eef0f6' } }] });
 const fmtM = (m) => (m >= 1000 ? (m / 1000).toFixed(1) + ' km' : Math.round(m / 10) * 10 + ' m');
 const MAN_SVG = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13" cy="4.5" r="1.9" fill="currentColor"/><path d="M9 21l2-6-2-3 2-5 3 2 2 3M13 9l-4 3"/></svg>';
-const PITCH3D = 62, AV = 128;
+const PITCH3D = 62, AV = 190;
 
 /* Street map walking view.
  *  - 3D city by default (tilt 62 degrees), 2D with one tap
@@ -124,10 +124,9 @@ export default function WalkView({ from, to, title, dark, onClose, onArrive, toS
     (async () => {
       let stage = null;
       try {
-        const A = await import('./avatar3d.js');
+        const A = await import('./mascot.js');
         if (dead) return;
-        stage = new A.Stage3D(cvRef.current, { size: AV, pitch: 56 });
-        stage.set(A.buildMan('#4f6bff'), A.buildCone('#4f6bff'));
+        stage = new A.MascotStage3D(cvRef.current, { size: AV, pitch: 56 });
         av.current.stage = stage; av.current.pos = { ...posRef.current };
       } catch (e) { if (me.current) me.current.getElement().style.display = 'grid'; return; }
       const loop = (now) => {
@@ -144,14 +143,10 @@ export default function WalkView({ from, to, title, dark, onClose, onArrive, toS
         stage.setPitch(Math.max(50, Math.min(72, pitch < 5 ? 56 : 40 + pitch * 0.45)));
         const pt = m.project([a.pos.lng, a.pos.lat]);
         cvRef.current.style.transform = 'translate(' + Math.round(pt.x - AV / 2) + 'px,' + Math.round(pt.y - AV * 0.64) + 'px)';
-        // idle / walk / run from the speed of the last fixes
+        // idle, walk, jog or run comes from the smoothed GPS speed (hysteresis inside the mascot); hidden above 7 m/s
         const stale = Date.now() - a.lastFix > 5000;
-        const sp = stale ? 0 : a.speed;
-        const want = sp > 2.3 ? 'run' : sp > 0.45 ? 'walk' : 'idle';
-        if (want !== a.mode && !(a.mode === 'run' && sp > 1.9) && !(a.mode === 'walk' && sp > 0.3 && want === 'idle')) a.mode = want;
-        if (window.__avatarMode) a.mode = window.__avatarMode;
-        stage.frame(dt, { mode: a.mode, speed: sp });
-        a.lastMode = a.mode;
+        const sp = stale ? 0 : (window.__avatarSpeed != null ? window.__avatarSpeed : a.speed);
+        stage.frame(dt, { speed: sp, reduce: document.body.classList.contains('rm'), bike: document.body.classList.contains('bike') });
         raf = requestAnimationFrame(loop);
       };
       raf = requestAnimationFrame(loop);
@@ -209,7 +204,7 @@ export default function WalkView({ from, to, title, dark, onClose, onArrive, toS
       // speed in m/s: from the device or from the last two fixes
       let sp = c.speed != null && !Number.isNaN(c.speed) ? c.speed : null;
       if (sp == null && a.lastPos) { const dt = (now - a.lastT) / 1000; if (dt > 0.3) sp = meters(a.lastPos, pos) / dt; }
-      if (sp != null) a.speed = a.speed * 0.5 + sp * 0.5;
+      if (sp != null) a.speed = a.speed * 0.7 + sp * 0.3;
       a.lastPos = pos; a.lastT = now; a.lastFix = now;
       posRef.current = pos;
       const x = route.current; if (!x) return;

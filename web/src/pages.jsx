@@ -132,20 +132,16 @@ export function NavPage({ onWalk, onModal, on, nav, fq, setFq, tq, setTq, store,
       )}
       <div className="qrow">
         <button className={'tpill glass' + (when.mode !== 'now' ? ' set' : '')} onClick={onTime}><Ico n="clock" />{whenLabel(when)}<Ico n="down" className="dn" /></button>
-        {['home', 'work'].map((k) => (
-          <button key={k} className="chip" onClick={() => (store[k] ? onSetDest(store[k]) : onPlaces(k))}><Ico n={k} className="s" />{store[k] ? tr(k) : tr('set' + k[0].toUpperCase() + k.slice(1))}</button>
-        ))}
+        <button className={'tpill glass optpill' + (store.step || store.bike ? ' set' : '')} aria-label={tr('optsTitle')} onClick={() => onModal('opts')}><Ico n="sliders" />{tr('opts')}{(store.step ? 1 : 0) + (store.bike ? 1 : 0) > 0 && <b className="nb">{(store.step ? 1 : 0) + (store.bike ? 1 : 0)}</b>}</button>
       </div>
-      <div className="tools">
-        <button className="chip tool" onClick={() => onModal('night')}><Ico n="moon" className="s" />{tr('nightTitle')}</button>
-        <button className="chip tool" onClick={() => onModal('tkt')}><Ico n="ticket" className="s" />{tr('tkTitle')}</button>
-        <button className="chip tool" onClick={() => onModal('sthelp')}><Ico n="building" className="s" />{tr('shTitle')}</button>
-      </div>
-      {(store.commutes || []).length > 0 && (
-        <><div className="sec">{tr('commutes')}</div><div className="pins">{store.commutes.map((c) => <button key={c[0] + c[1]} className="chip" onClick={() => onChipTrip(c)}><Ico n="nav" className="s" />{c[0]} &rarr; {c[1]}</button>)}</div></>
-      )}
-      {store.fav.length > 0 && (
-        <div className="pins">{store.fav.map((n) => <button key={n} className="chip" onClick={() => onSetDest(n)}><Ico n="star" className="s" />{n}</button>)}</div>
+      {!nav.to && (
+        <div className="pins one">
+          {['home', 'work'].map((k) => (
+            <button key={k} className="chip" onClick={() => (store[k] ? onSetDest(store[k]) : onPlaces(k))}><Ico n={k} className="s" />{store[k] ? tr(k) : tr('set' + k[0].toUpperCase() + k.slice(1))}</button>
+          ))}
+          {(store.commutes || []).map((c) => <button key={c[0] + c[1]} className="chip" onClick={() => onChipTrip(c)}><Ico n="nav" className="s" />{c[0]} &rarr; {c[1]}</button>)}
+          {store.fav.map((n) => <button key={n} className="chip" onClick={() => onSetDest(n)}><Ico n="star" className="s" />{n}</button>)}
+        </div>
       )}
 
       {ready && nav.routes.length === 0 && <div className="empty">{tr('noRoute')}</div>}
@@ -160,11 +156,11 @@ export function NavPage({ onWalk, onModal, on, nav, fq, setFq, tq, setTq, store,
 
       {!ready && (
         <div>
-          {store.rec.length > 0 && <><div className="sec">{tr('recentTrips')}</div><div className="rec">{store.rec.map((r, i) => <button key={i} className="chip" onClick={() => onChipTrip(r)}>{r[0]} &rarr; {r[1]}</button>)}</div></>}
+          {store.rec.length > 0 && <><div className="sec">{tr('recentTrips')}</div><div className="pins one">{store.rec.slice(0, 6).map((r, i) => <button key={i} className="chip" onClick={() => onChipTrip(r)}>{r[0]} &rarr; {r[1]}</button>)}</div></>}
           <div className="sec">{tr('popularStations')}</div>
-          <div className="rec">{R.search('', 8).map((s) => <button key={s.i} className="chip" onClick={() => onChipStation(s.name)}>{s.name}</button>)}</div>
+          <div className="pins one">{R.search('', 8).map((s) => <button key={s.i} className="chip" onClick={() => onChipStation(s.name)}>{s.name}</button>)}</div>
           <div className="sec">{tr('popularPlaces')}</div>
-          <div className="rec">{POPULAR.map((pl) => <button key={pl.name} className="chip" onClick={() => onPickPlace(pl)}><Ico n="pinmark" className="s" />{pl.name}</button>)}</div>
+          <div className="pins one">{POPULAR.map((pl) => <button key={pl.name} className="chip" onClick={() => onPickPlace(pl)}><Ico n="pinmark" className="s" />{pl.name}</button>)}</div>
           <p className="note">{tr('navHint')}</p>
         </div>
       )}
@@ -287,6 +283,13 @@ export function MorePage({ on, store, setStore, open, toast, gpsStatus, onBack }
   );
   const Tgl = ({ k, label, msg }) => <button className={'tgl' + (store[k] ? ' on' : '')} role="switch" aria-checked={!!store[k]} aria-label={label} onClick={flip(k, msg)} />;
   const gpsText = tr('gps_' + gpsStatus);
+  const [openG, setOpenG] = useState(null);
+  const Group = ({ id, ico, title, sub, children }) => { const o = openG === id; return (
+    <div className={'list glass grp' + (o ? ' open' : '')}>
+      <button className="li grphead" aria-expanded={o} onClick={() => setOpenG(o ? null : id)}><span className="ico"><Ico n={ico} /></span><span className="tx">{title}<small>{sub}</small></span><span className="ch"><Ico n="chevron" /></span></button>
+      {o && <div className="grpbody">{children}</div>}
+    </div>
+  ); };
   const lang = LANGS.find((l) => l.id === store.lang) || LANGS[0];
   const saved = (store.home ? 1 : 0) + (store.work ? 1 : 0) + store.fav.length;
   return (
@@ -299,20 +302,20 @@ export function MorePage({ on, store, setStore, open, toast, gpsStatus, onBack }
 
       <Updates on={on} />
 
-      <div className="list glass">
+      <Group id="saved" ico="home" title={tr('gSaved')} sub={tr('gSavedSub')}>
         <Row ico="home" title={tr('savedPlaces')} sub={saved ? cnt('saved', saved) : tr('savedNone')} onClick={() => open('places')} />
         <Row ico="clock" title={tr('recentTrips')} sub={store.rec.length ? store.rec[0][0] + ' → ' + store.rec[0][1] : tr('none')} onClick={() => open('rec')} />
         <Row ico="ticket" title={tr('tkTitle')} sub={tr('tkSub')} onClick={() => open('tkt')} />
         <Row ico="ticket" title={tr('tickets')} sub={tr('zonesSub')} onClick={() => open('tic')} />
-      </div>
-      <div className="list glass">
+      </Group>
+      <Group id="plan" ico="nav" title={tr('gPlan')} sub={tr('gPlanSub')}>
         {VOICE_ASSISTANT && <Row ico="mic" title={tr('asTitle')} sub={tr('asSub')} onClick={() => open('assist')} />}
         <Row ico="building" title={tr('shTitle')} sub={tr('shSub')} onClick={() => open('sthelp')} />
         <Row ico="refresh" title={tr('alTitle')} sub={tr('alSub')} onClick={() => open('alt')} />
         <Row ico="moon" title={tr('nightTitle')} sub={tr('nightSub')} onClick={() => open('night')} />
         <Row ico="share" title={tr('shareTrip')} sub={tr('shareTripSub')} onClick={() => open('trip')} />
-      </div>
-      <div className="list glass">
+      </Group>
+      <Group id="look" ico="eye" title={tr('gLook')} sub={tr('gLookSub', { theme: tr('th' + (store.theme || 'auto')[0].toUpperCase() + (store.theme || 'auto').slice(1)), lang: lang.name })}>
         <div className="skins" role="radiogroup" aria-label={tr('skinTitle')}>
           {['classic', 'neon', 'modern'].map((k) => (
             <button key={k} role="radio" aria-checked={(store.skin || 'classic') === k} className={'skin sk-' + k + ((store.skin || 'classic') === k ? ' on' : '')} onClick={() => setStore((s) => ({ ...s, skin: k }))}>
@@ -324,23 +327,29 @@ export function MorePage({ on, store, setStore, open, toast, gpsStatus, onBack }
           <div className="seg3">{['auto', 'light', 'dark'].map((t) => <button key={t} className={store.theme === t ? 'on' : ''} onClick={() => setStore((s) => ({ ...s, theme: t }))}>{tr('theme_' + t)}</button>)}</div>
         </div>
         <Row ico="globe" title={tr('language')} sub={lang.name} onClick={() => open('lang')} />
+        <div className="li"><span className="ico"><Ico n="map" /></span><span className="tx">{tr('labels')}<small>{tr('labelsSub')}</small></span><Tgl k="lbl" label={tr('labels')} /></div>
         <div className="li"><span className="ico"><Ico n="building" /></span><span className="tx">{tr('real3d')}<small>{tr('real3dSub')}</small></span><Tgl k="real3d" label={tr('real3d')} /></div>
+        <div className="li"><span className="ico"><Ico n="walk" /></span><span className="tx">{tr('reduceMotion')}<small>{tr('reduceMotionSub')}</small></span><Tgl k="reduceMotion" label={tr('reduceMotion')} /></div>
+      </Group>
+      <Group id="move" ico="walk" title={tr('gMove')} sub={tr('gMoveSub')}>
+        <div className="li"><span className="ico"><Ico n="bike" /></span><span className="tx">{tr('bikeMode')}<small>{tr('bikeModeSub')}</small></span><Tgl k="bike" label={tr('bikeMode')} /></div>
+        <div className="li"><span className="ico"><Ico n="access" /></span><span className="tx">{tr('stepFree')}<small>{tr('stepFreeSub')}</small></span><Tgl k="step" label={tr('stepFree')} msg={tr('stepFreeMsg')} /></div>
         <div className="li"><span className="ico"><Ico n="bulb" /></span><span className="tx">{tr('awake')}<small>{tr('awakeSub')}</small></span><Tgl k="awake" label={tr('awake')} /></div>
         <div className="li"><span className="ico"><Ico n="vibrate" /></span><span className="tx">{tr('haptics')}<small>{tr('hapticsSub')}</small></span><Tgl k="haptics" label={tr('haptics')} /></div>
-        <div className="li"><span className="ico"><Ico n="map" /></span><span className="tx">{tr('labels')}<small>{tr('labelsSub')}</small></span><Tgl k="lbl" label={tr('labels')} /></div>
-        <div className="li"><span className="ico"><Ico n="access" /></span><span className="tx">{tr('stepFree')}<small>{tr('stepFreeSub')}</small></span><Tgl k="step" label={tr('stepFree')} msg={tr('stepFreeMsg')} /></div>
+      </Group>
+      <Group id="priv" ico="lock" title={tr('gPrivacy')} sub={tr('gPrivacySub')}>
         <div className="li"><span className="ico"><Ico n="gps" /></span><span className="tx">{tr('location')}<small>{gpsText}</small></span></div>
-      </div>
+        <Row ico="lock" title={tr('privacy')} sub={tr('privacySub')} onClick={() => open('priv')} />
+      </Group>
       <div className="sec">{tr('comingSoon')}</div>
       <div className="list glass">
         <Row ico="ticket" title={tr('ticketsBuy')} sub={tr('ticketsBuySub')} soon onClick={() => toast(tr('plannedMsg'))} />
       </div>
-      <div className="list glass">
+      <Group id="about" ico="info" title={tr('gAbout')} sub={tr('gAboutSub')}>
         <Row ico="share" title={tr('shareApp')} onClick={() => open('share')} />
         <Row ico="mail" title={tr('feedback')} onClick={() => open('fb')} />
         <Row ico="info" title={tr('about')} sub={tr('version') + ' 0.6'} onClick={() => open('about')} />
-        <Row ico="lock" title={tr('privacy')} sub={tr('privacySub')} onClick={() => open('priv')} />
-      </div>
+      </Group>
     </section>
   );
 }
@@ -414,10 +423,35 @@ function PlacesModal({ store, setStore, onPick, say }) {
   );
 }
 
-export function ModalContent({ kind, store, setStore, board, boardOpts, onFav, onTrip, onLang, onApplyTime, when, say, nav, stNames, onAssist, onCmd }) {
+function OptionsSheet({ store, setStore, onModal }) {
+  const T = ({ k, ico, title, sub }) => (
+    <div className="li"><span className="ico"><Ico n={ico} /></span><span className="tx">{title}<small>{sub}</small></span><button className={'tgl' + (store[k] ? ' on' : '')} role="switch" aria-checked={!!store[k]} aria-label={title} onClick={() => setStore((s) => ({ ...s, [k]: !s[k] }))} /></div>
+  );
+  const Go = ({ ico, title, sub, kind }) => <button className="li" onClick={() => onModal(kind)}><span className="ico"><Ico n={ico} /></span><span className="tx">{title}<small>{sub}</small></span><span className="ch"><Ico n="chevron" /></span></button>;
+  return (
+    <div>
+      <h2 className="mt">{tr('optsTitle')}</h2>
+      <div className="sec">{tr('optsRoute')}</div>
+      <div className="list glass">
+        <T k="step" ico="access" title={tr('stepFree')} sub={tr('stepFreeSub')} />
+        <T k="bike" ico="bike" title={tr('bikeMode')} sub={tr('bikeModeSub')} />
+      </div>
+      <div className="sec">{tr('optsTools')}</div>
+      <div className="list glass">
+        <Go kind="night" ico="moon" title={tr('nightTitle')} sub={tr('nightSub')} />
+        <Go kind="tkt" ico="ticket" title={tr('tkTitle')} sub={tr('tkSub')} />
+        <Go kind="sthelp" ico="building" title={tr('shTitle')} sub={tr('shSub')} />
+      </div>
+    </div>
+  );
+}
+
+export function ModalContent({ kind, store, setStore, board, boardOpts, onFav, onTrip, onLang, onApplyTime, when, say, nav, stNames, onAssist, onCmd, onModal }) {
   switch (kind) {
     case 'tkt':
       return <TicketHelper nav={nav} />;
+    case 'opts':
+      return <OptionsSheet store={store} setStore={setStore} onModal={onModal} />;
     case 'sthelp':
       return <StationHelp store={store} names={stNames && stNames.length ? stNames : ['Alexanderplatz']} />;
     case 'alt':

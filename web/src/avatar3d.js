@@ -118,46 +118,7 @@ export function buildCone(color) {
   return g;
 }
 
-/* ---------------------------------------------------------------- vehicles */
-const WIN = '#1b2438';
-function railCar(len, w, h, body, stripe, front) {
-  const g = new THREE.Group();
-  const b = new THREE.Mesh(new THREE.BoxGeometry(w, h * 0.74, len), M(body)); b.position.y = h * 0.5; g.add(b);
-  const roof = new THREE.Mesh(new THREE.BoxGeometry(w * 0.86, h * 0.14, len * 0.98), M('#dfe4f0')); roof.position.y = h * 0.93; g.add(roof);
-  const win = new THREE.Mesh(new THREE.BoxGeometry(w + 0.012, h * 0.26, len * 0.9), M(WIN, { roughness: 0.25, metalness: 0.2 })); win.position.y = h * 0.62; g.add(win);
-  if (stripe) { const s = new THREE.Mesh(new THREE.BoxGeometry(w + 0.014, h * 0.1, len * 0.995), M(stripe)); s.position.y = h * 0.34; g.add(s); }
-  [-0.32, 0.32].forEach((k) => { const bo = new THREE.Mesh(new THREE.BoxGeometry(w * 0.84, h * 0.16, len * 0.2), M('#262b38')); bo.position.set(0, h * 0.08, len * k); g.add(bo); });
-  if (front) {
-    const nose = new THREE.Mesh(new THREE.BoxGeometry(w * 0.9, h * 0.62, len * 0.12), M(body)); nose.position.set(0, h * 0.52, -len * 0.54); g.add(nose);
-    const glass = new THREE.Mesh(new THREE.BoxGeometry(w * 0.7, h * 0.26, len * 0.02), M(WIN, { roughness: 0.2 })); glass.position.set(0, h * 0.64, -len * 0.605); g.add(glass);
-    [-1, 1].forEach((sd) => { const l = new THREE.Mesh(new THREE.SphereGeometry(h * 0.05, 8, 6), new THREE.MeshBasicMaterial({ color: '#fff3b0' })); l.position.set(sd * w * 0.3, h * 0.3, -len * 0.61); g.add(l); });
-  }
-  return g;
-}
-function train(n, len, w, h, body, stripe) {
-  const root = new THREE.Group();
-  for (let i = 0; i < n; i++) { const c = railCar(len, w, h, body, stripe, i === 0); c.position.z = (i - (n - 1) / 2) * (len + 0.05); root.add(c); }
-  return root;
-}
-export function buildVehicle(kind, color) {
-  let root;
-  if (kind === 'U') root = train(3, 1.05, 0.52, 0.6, color || '#1670b8', '#f2c200');
-  else if (kind === 're') root = train(4, 1.25, 0.56, 0.66, '#f4f5f7', '#e30613');
-  else if (kind === 'tram') {
-    root = new THREE.Group();
-    [-0.78, 0.78].forEach((z, i) => { const c = railCar(1.45, 0.5, 0.55, color || '#d6001c', '#ffffff', i === 0); c.position.z = z; if (i === 1) c.rotation.y = Math.PI; root.add(c); });
-    const mid = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.34, 0.12), M('#20232c')); mid.position.set(0, 0.3, 0); root.add(mid);
-    const pan = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.018, 0.012), M('#555b6e')); pan.position.set(0, 0.74, 0.4); root.add(pan);
-    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.016, 0.2, 0.016), M('#555b6e')); arm.position.set(0, 0.66, 0.4); root.add(arm);
-  } else if (kind === 'bus') {
-    root = railCar(2.1, 0.56, 0.74, color || '#a5027d', '#ffffff', true);
-    [-0.65, 0.6].forEach((z) => [-1, 1].forEach((sd) => { const wl = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.07, 14), M('#15171f')); wl.rotation.z = Math.PI / 2; wl.position.set(sd * 0.28, 0.1, z); root.add(wl); }));
-  } else root = train(3, 1.2, 0.6, 0.62, color || '#3d9a4a', '#f2c200');
-  const t = { time: 0 };
-  const sh = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 3.6), new THREE.MeshBasicMaterial({ color: '#000', transparent: true, opacity: 0.11, depthWrite: false }));
-  sh.rotation.x = -Math.PI / 2; sh.position.y = 0.005;
-  const grp = new THREE.Group(); grp.add(sh); grp.add(root);
-  return { root: grp, update(dt) { t.time += dt; root.position.y = Math.sin(t.time * 9) * 0.006; root.rotation.z = Math.sin(t.time * 5.3) * 0.006; } };
-}
+/* ---------------------------------------------------------------- vehicles: the toon models live in vehicles-toon.js */
+export { buildVehicle } from './vehicles-toon.js';
 /* what kind of vehicle rides a line: S and U trains, M/number trams, bus lines, RE/RB regional trains */
 export const vehicleKind = (line, prod) => (prod === 'U' || /^U\d/.test(line) ? 'U' : prod === 'S' || /^S\d/.test(line) ? 'S' : /^(RE|RB|FEX)/.test(line) ? 're' : /^(M?\d{1,2}|M\d)$/.test(line) && !/^\d{3}$/.test(line) ? 'tram' : 'bus');
