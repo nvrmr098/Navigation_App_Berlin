@@ -5,7 +5,9 @@ import { walkRoute, along, meters, walkMin, bearing, lookAhead, instruction } fr
 import { STYLE_URL, tuneMap, mockLiberty } from './mapstyle.js';
 import { addFootImages, addFootLayer, stepPoints } from './footsteps.js';
 import { entrancesAround, nearestTo, entranceLabel } from './entrances.js';
-import { applyPos, applyHeading, setOffsetFrom, setCompass, resetCalib, offsetMeters, hasCalib } from './calibrate.js';
+import { applyPos, applyHeading, setOffsetFrom, resetCalib, offsetMeters, hasCalib, askMotion } from './calibrate.js';
+import AutoCalibPanel from './autocalib.jsx';
+import { bgTrack } from './bgloc.js';
 
 const BLANK = (dark) => ({ version: 8, sources: {}, layers: [{ id: 'bg', type: 'background', paint: { 'background-color': dark ? '#1b2335' : '#eef0f6' } }] });
 const fmtM = (m) => (m >= 1000 ? (m / 1000).toFixed(1) + ' km' : Math.round(m / 10) * 10 + ' m');
@@ -230,8 +232,9 @@ export default function WalkView({ from, to, title, dark, onClose, onArrive, toS
     };
     window.__walkFix = (lat, lng, heading, speed) => { if (heading != null) { hdgRef.current.compass = heading; } onFix({ latitude: lat, longitude: lng, accuracy: 10, speed: speed != null ? speed : null }); };
     if (!navigator.geolocation) { setGps('unavailable'); return undefined; }
+    bgTrack(true, title || to.name, '');
     const id = navigator.geolocation.watchPosition((p) => onFix(p.coords), (e) => setGps(e.code === 1 ? 'denied' : 'searching'), { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 });
-    return () => { navigator.geolocation.clearWatch(id); delete window.__walkFix; };
+    return () => { navigator.geolocation.clearWatch(id); bgTrack(false); delete window.__walkFix; };
     // eslint-disable-next-line
   }, []);
 
@@ -250,11 +253,27 @@ export default function WalkView({ from, to, title, dark, onClose, onArrive, toS
     posRef.current = truth; av.current.pos = { ...truth }; av.current.lastFix = Date.now();
     follow.current = true; openCalib('closed'); say && say(tr('calibDone', { m: offsetMeters() }));
   };
-  const calibCompass = () => {
-    const h = hdgRef.current, x = route.current; if (!x) return;
-    if (h.rawCompass == null) { say && say(tr('calibNoCompass')); return; }
-    const a = along(x.pts, posRef.current), tgt = lookAhead(x.pts, a.i, posRef.current, 25), want = bearing(posRef.current, tgt);
-    setCompass(want - h.rawCompass); h.compass = applyHeading(h.rawCompass); openCalib('closed'); say && say(tr('calibCompassDone'));
+  /* one tap calibration: snaps to the walking route when close to it, learns the compass from the way you move */
+  const autoOpts = {
+    getRaw: () => rawRef.current,
+    getCompass: () => hdgRef.current.rawCompass,
+    snap: (A) => {
+      const x = route.current; if (!x || !x.pts || x.pts.length < 2) return null;
+      let best = null, bd = 1e12;
+      for (let i = 0; i < x.pts.length - 1; i++) {
+        const a = { lat: x.pts[i][1], lng: x.pts[i][0] }, b = { lat: x.pts[i + 1][1], lng: x.pts[i + 1][0] };
+        const kx = Math.cos(A.lat * Math.PI / 180), dx = (b.lng - a.lng) * kx, dy = b.lat - a.lat, L = dx * dx + dy * dy || 1e-12;
+        const t = Math.max(0, Math.min(1, (((A.lng - a.lng) * kx) * dx + (A.lat - a.lat) * dy) / L)), q = { lat: a.lat + dy * t, lng: a.lng + (b.lng - a.lng) * t }, d = meters(A, q);
+        if (d < bd) { bd = d; best = q; }
+      }
+      return best ? { lat: best.lat, lng: best.lng, m: bd, max: 30 } : null;
+    },
+  };
+  const afterCalib = (msg) => {
+    const raw = rawRef.current;
+    if (raw) { const p = applyPos(raw); posRef.current = p; av.current.pos = { ...p }; av.current.lastFix = Date.now(); setLive(p); }
+    const h = hdgRef.current; if (h.rawCompass != null) h.compass = applyHeading(h.rawCompass);
+    follow.current = true; openCalib('closed'); if (msg) say && say(msg);
   };
 
   return (
@@ -287,15 +306,16 @@ export default function WalkView({ from, to, title, dark, onClose, onArrive, toS
       <div className="wk-side">
         <button className={'fab glass' + (mode3d ? ' on' : '')} aria-label="2D / 3D" onClick={toggle3d}><Ico n={mode3d ? 'flat' : 'cube'} /><small>{mode3d ? '2D' : '3D'}</small></button>
         <button className={'fab glass' + (headUp ? ' on' : '')} aria-label={tr('headUp')} onClick={() => { const v = !headUpRef.current; headUpRef.current = v; setHeadUp(v); if (!v && map.current) map.current.easeTo({ bearing: 0, duration: 400 }); }}><Ico n="compass" /></button>
-        <button className={'fab glass' + (hasCalib() ? ' on' : '')} aria-label={tr('calibrate')} onClick={() => openCalib(calib === 'menu' ? 'closed' : 'menu')}><Ico n="crosshair" /></button>
+        <button className={'fab glass' + (hasCalib() ? ' on' : '')} aria-label={tr('calibrate')} onClick={() => { if (calib === 'auto') { openCalib('closed'); return; } askMotion(); openCalib('auto'); }}><Ico n="crosshair" /></button>
       </div>
-      {calib === 'menu' && (
+      {calib === 'auto' && (
         <div className="wk-calib glass">
-          <b>{tr('calibrate')}</b>
-          <button className="opt" onClick={() => openCalib('pin')}><span className="ico"><Ico n="crosshair" /></span><span><b>{tr('calibPos')}</b><span>{tr('calibPosSub')}</span></span></button>
-          <button className="opt" onClick={calibCompass}><span className="ico"><Ico n="compass" /></span><span><b>{tr('calibCompass')}</b><span>{tr('calibCompassSub')}</span></span></button>
-          <div className="eight" aria-hidden="true"><svg viewBox="0 0 120 60"><path d="M60 30C48 10 14 10 14 30s34 20 46 0 46-20 46 0-34 20-46 0z" /><circle r="4" cx="60" cy="30"><animateMotion dur="3s" repeatCount="indefinite" path="M60 30C48 10 14 10 14 30s34 20 46 0 46-20 46 0-34 20-46 0z" /></circle></svg><small>{tr('calibEight')}</small></div>
-          <div className="acts"><button className="btn alt sm" onClick={() => { resetCalib(); hdgRef.current.compass = hdgRef.current.rawCompass != null ? hdgRef.current.rawCompass : hdgRef.current.compass; openCalib('closed'); say && say(tr('calibReset')); }}><Ico n="refresh" />{tr('calibResetBtn')}</button><button className="btn alt sm" onClick={() => openCalib('closed')}>{tr('close')}</button></div>
+          <AutoCalibPanel opts={autoOpts} onDone={afterCalib} onCancel={() => openCalib('closed')} extra={(
+            <div className="ac-acts">
+              <button className="btn alt sm" onClick={() => openCalib('pin')}><Ico n="crosshair" />{tr('acSetOnMap')}</button>
+              <button className="btn alt sm" onClick={() => { resetCalib(); const h = hdgRef.current; h.compass = h.rawCompass != null ? h.rawCompass : h.compass; openCalib('closed'); say && say(tr('calibReset')); }}><Ico n="refresh" />{tr('calibResetBtn')}</button>
+            </div>
+          )} />
         </div>
       )}
       <div className="wk-bot">

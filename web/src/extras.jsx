@@ -11,6 +11,7 @@ import { parseIntent, special } from './intent.js';
 import { resolveText, nearest } from './search.js';
 import { entrancesAround, entranceLabel } from './entrances.js';
 import { setOffsetFrom, resetCalib, offsetMeters } from './calibrate.js';
+import AutoCalibPanel from './autocalib.jsx';
 
 const C0 = { lat: 52.5219, lng: 13.4115 };
 /* zone estimate: A = inside the Ringbahn (about 8 km around the centre), B = rest of Berlin (about 21 km), C = beyond. An estimate, not an official map. */
@@ -247,8 +248,9 @@ export function EntrancesModal({ name, lat, lng, dest, onWalk }) {
   );
 }
 
-/* GPS calibration while riding: tell the app where you really are and it shifts every position by the difference */
-export function CalibModal({ route, raw, fix, onDone }) {
+/* GPS calibration while riding: one tap, the app calibrates by itself (figure eight, averaged GPS, snap to the route).
+ * The old way (tell the app at which station you are) stays below as a manual option. */
+export function CalibModal({ route, raw, fix, auto, onDone }) {
   const list = (() => {
     if (!route) return [];
     const seen = {}, out = [];
@@ -258,19 +260,20 @@ export function CalibModal({ route, raw, fix, onDone }) {
   })();
   const off = offsetMeters();
   return (
-    <>
-      <h3>{tr('calTitle')}</h3>
-      <p className="mute">{tr('calHint')}</p>
-      <p>{off ? tr('calShift', { m: off }) : tr('calNone')}</p>
-      {!raw && <p className="mute">{tr('calNoFix')}</p>}
-      <div className="sec">{tr('calAt')}</div>
-      {list.map((s) => (
-        <button key={s.i} className="plc" disabled={!raw} onClick={() => { setOffsetFrom(raw, { lat: s.lat, lng: s.lng }); onDone(tr('calDone', { n: s.name })); }}>
-          <span className="pi"><Ico n="crosshair" /></span><div className="tx"><b>{s.name}</b><small>{tr('calHere')}</small></div>
-        </button>
-      ))}
-      {off > 0 && <button className="btn alt" style={{ width: '100%', marginTop: 10 }} onClick={() => { resetCalib(); onDone(tr('calReset')); }}><Ico n="refresh" />{tr('calResetBtn')}</button>}
-    </>
+    <AutoCalibPanel opts={auto} onDone={(msg) => onDone(msg)} onCancel={() => onDone('')} extra={(
+      <details>
+        <summary>{tr('acManual')}</summary>
+        <p className="mute">{tr('calHint')}</p>
+        <p>{off ? tr('calShift', { m: off }) : tr('calNone')}</p>
+        <div className="sec">{tr('calAt')}</div>
+        {list.map((s) => (
+          <button key={s.i} className="plc" disabled={!raw} onClick={() => { setOffsetFrom(raw, { lat: s.lat, lng: s.lng }); onDone(tr('calDone', { n: s.name })); }}>
+            <span className="pi"><Ico n="crosshair" /></span><div className="tx"><b>{s.name}</b><small>{tr('calHere')}</small></div>
+          </button>
+        ))}
+        {off > 0 && <button className="btn alt" style={{ width: '100%', marginTop: 10 }} onClick={() => { resetCalib(); onDone(tr('calReset')); }}><Ico n="refresh" />{tr('calResetBtn')}</button>}
+      </details>
+    )} />
   );
 }
 

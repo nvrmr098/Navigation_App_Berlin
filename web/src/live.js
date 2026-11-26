@@ -63,7 +63,7 @@ const mapRow = (d, arrival) => {
     line: line.replace(/\s+/g, ''), product: d.line && d.line.product, // 'suburban' | 'subway'
     dir: cleanName(arrival ? (d.provenance || d.origin || '') : (d.direction || '')),
     when, planned, delay: typeof d.delay === 'number' ? Math.round(d.delay / 60) : (when && planned ? Math.round((when - planned) / 60000) : 0),
-    platform: d.platform || d.plannedPlatform || '', cancelled: !!d.cancelled || (!d.when && !!d.plannedWhen),
+    platform: d.platform || d.plannedPlatform || '', cancelled: !!d.cancelled || (!d.when && !!d.plannedWhen), tripId: d.tripId || '',
   };
 };
 
@@ -77,6 +77,15 @@ export async function board(name, kind, opts) {
   const rows = list.map((x) => mapRow(x, kind === 'arrivals')).filter((x) => x.line && x.when).sort((a, b) => a.when - b.when);
   rows.staleAt = staleHits.get(API + q) || 0; // set when the rows come from the saved copy (offline)
   return rows;
+}
+
+/* the stops of one train run with their times (to know where a train goes and when it reaches the end of your leg) */
+export async function tripStops(id) {
+  const d = await getJson('/trips/' + encodeURIComponent(id) + '?stopovers=true&remarks=false&polylines=false&language=' + getLang(), 20000);
+  const t = (d && d.trip) || d || {};
+  return (t.stopovers || []).filter((x) => x && x.stop && !x.cancelled).map((x) => ({
+    id: x.stop.id || '', name: cleanName(x.stop.name), arr: Date.parse(x.arrival || x.plannedArrival || ''), dep: Date.parse(x.departure || x.plannedDeparture || ''),
+  }));
 }
 
 // next trains of one line towards one terminus (used for the route cards)

@@ -1,0 +1,26 @@
+/* v10: automatic calibration panel, train chip, 3D train on the street map */
+.veh3.has3d .pulse{display:none}
+
+.autocal{display:flex;flex-direction:column;gap:10px}
+.autocal h3{margin:0}
+.autocal .ac-eight{display:flex;justify-content:center}
+.autocal .ac-eight svg{width:150px;height:75px}
+.autocal .ac-eight path{fill:none;stroke:var(--accent,#4f6bff);stroke-width:2.6;stroke-linecap:round;stroke-dasharray:3 6;opacity:.75}
+.autocal .ac-eight circle{fill:var(--accent,#4f6bff)}
+.autocal .ac-hint{margin:0;text-align:center;font-weight:600}
+.autocal .ac-bar{height:8px;border-radius:4px;background:var(--line,rgba(120,130,160,.25));overflow:hidden}
+.autocal .ac-bar i{display:block;height:100%;width:0;border-radius:4px;background:linear-gradient(90deg,#6d7cff,#22c4ff);transition:width .25s ease}
+.autocal.done .ac-bar i{background:#3fbf63}
+.autocal .ac-stats{display:flex;justify-content:space-between;gap:10px;font-size:13px;color:var(--mute,#7a84a0)}
+.autocal .ac-stats b{color:var(--ink,inherit);font-weight:700}
+.autocal .ac-res{margin:0;text-align:center;font-weight:700}
+.autocal.fail .ac-res{color:#d95142}
+.autocal .ac-acts{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+.autocal details{margin-top:4px}
+.autocal summary{cursor:pointer;font-size:13px;color:var(--mute,#7a84a0);padding:6px 0}
+
+.trainchip{position:absolute;left:12px;right:12px;top:calc(env(safe-area-inset-top) + 196px);z-index:27;display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:14px;font-size:13px;line-height:1.25;pointer-events:none}
+body:has(.tripcard) .trainchip{top:calc(env(safe-area-inset-top) + 246px)}
+.trainchip .tcx{flex:1;min-width:0}
+.trainchip b{font-weight:700}
+.trainchip small{display:block;opacity:.75;font-size:12px}
