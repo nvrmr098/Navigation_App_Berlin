@@ -5,6 +5,7 @@ import { ST } from './net.js';
 import { geoAt } from './geo.js';
 import { tuneMap } from './mapstyle.js';
 import { Vehicle2D } from './vehicle2d.js';
+import { smoothPath } from './curve.js';
 import { vehicleKind } from './avatar3d.js';
 
 const STYLE_LIGHT = 'https://tiles.openfreemap.org/styles/liberty';
@@ -102,13 +103,13 @@ export class RealMap3D {
 
   addRoute(overlay) {
     const map = this.map, route = overlay.route, pts = overlay.path.pts;
-    const features = [];
+    const features = [], k0 = Math.cos(ST[pts[0].st].lat * Math.PI / 180), sm = smoothPath(pts.map((p) => [ST[p.st].lng * k0, ST[p.st].lat]), 10);
     route.legs.forEach((lg, li) => {
       const seg = overlay.path.legs[li], coords = [], ll = (i) => [ST[pts[i].st].lng, ST[pts[i].st].lat];
       // a walk between two stops is drawn dashed and grey, the ride starts at its own first stop
       const from = lg.walkIn && seg.b > seg.a ? seg.a + 1 : seg.a;
       if (from > seg.a) features.push({ type: 'Feature', properties: { c: '#8a93aa', p: 'W' }, geometry: { type: 'LineString', coordinates: [ll(seg.a), ll(seg.a + 1)] } });
-      for (let i = from; i <= seg.b; i++) coords.push(ll(i));
+      for (let q = sm.ix[from]; q <= sm.ix[seg.b]; q++) coords.push([sm.pts[q][0] / k0, sm.pts[q][1]]);
       features.push({ type: 'Feature', properties: { c: lg.c, p: lg.p }, geometry: { type: 'LineString', coordinates: coords } });
     });
     const stops = pts.map((p) => ({ type: 'Feature', properties: { name: ST[p.st].name }, geometry: { type: 'Point', coordinates: [ST[p.st].lng, ST[p.st].lat] } }));

@@ -1,4 +1,5 @@
 /* Canvas 2D map: network drawing, labels, route overlay, pan and zoom. React owns the state, this class owns the pixels. */
+import { smoothPath } from './curve.js';
 import { R, ST, INFO, edges, rank, BB, clamp, pointAt } from './net.js';
 
 const FONT = '"Inter Variable", Inter, system-ui, sans-serif';
@@ -211,9 +212,9 @@ export class MapEngine {
     ctx.fillStyle = '#fff'; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = col; ctx.stroke(); ctx.restore();
   }
   drawRoute(k) {
-    const ctx = this.ctx, o = this.overlay, pts = o.path.pts.map((p) => [this.sx(p.x), this.sy(p.y)]), w = clamp(7 * Math.sqrt(k), 6, 13);
+    const ctx = this.ctx, o = this.overlay, sp = o.path.pts.map((p) => [this.sx(p.x), this.sy(p.y)]), sm = smoothPath(sp, 12), pts = sm.pts, w = clamp(7 * Math.sqrt(k), 6, 13);
     o.route.legs.forEach((lg, li) => {
-      const seg = o.path.legs[li], frac = o.reveal ? o.reveal[li] : 1; if (frac <= 0) return;
+      const seg0 = o.path.legs[li], seg = { a: sm.ix[seg0.a], b: sm.ix[seg0.b] }, frac = o.reveal ? o.reveal[li] : 1; if (frac <= 0) return;
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       const r = this.drawPortion(pts, seg.a, seg.b, frac); ctx.strokeStyle = '#fff'; ctx.lineWidth = w + 4; ctx.globalAlpha = 1; ctx.stroke();
       this.drawPortion(pts, seg.a, seg.b, frac); ctx.strokeStyle = lg.c; ctx.lineWidth = w; ctx.stroke();
@@ -228,7 +229,7 @@ export class MapEngine {
     });
     o.path.pts.forEach((p, i) => {
       const li = p.leg, frac = o.reveal ? o.reveal[li] : 1; if (frac <= 0) return;
-      const first = i === 0, last = i === o.path.pts.length - 1, x = pts[i][0], y = pts[i][1];
+      const first = i === 0, last = i === o.path.pts.length - 1, x = sp[i][0], y = sp[i][1];
       const isEnd = o.path.legs.some((L) => L.a === i || L.b === i);
       ctx.beginPath(); ctx.arc(x, y, isEnd ? 8 : 4.2, 0, 6.2832); ctx.fillStyle = '#fff'; ctx.fill(); ctx.lineWidth = 2.5; ctx.strokeStyle = o.route.legs[li].c; ctx.stroke();
       if (first || last) {

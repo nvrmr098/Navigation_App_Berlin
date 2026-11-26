@@ -2,17 +2,22 @@
  * Data (c) OpenStreetMap contributors, ODbL. Names and numbers are only there where mappers added them, so everything is optional. */
 import { meters } from './walk.js';
 
-const HOSTS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
+const HOSTS = ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter', 'https://overpass.kumi.systems/api/interpreter', 'https://maps.mail.ru/osm/tools/overpass/api/interpreter'];
 const mem = new Map();
 
-async function ask(q) {
-  let err;
-  for (const h of HOSTS) {
-    const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 9000);
-    try { const r = await fetch(h + '?data=' + encodeURIComponent(q), { signal: ctl.signal }); if (!r.ok) throw new Error('http ' + r.status); return await r.json(); } catch (e) { err = e; } finally { clearTimeout(t); }
-  }
-  throw err;
+/* One Overpass query. All mirrors are asked at the same time (POST, which long queries need), the first good answer wins, one retry after a pause. */
+export async function overpass(q, ms) {
+  const once = () => Promise.any(HOSTS.map(async (h) => {
+    const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), ms || 14000);
+    try {
+      const r = await fetch(h, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' }, body: 'data=' + encodeURIComponent(q), signal: ctl.signal });
+      if (!r.ok) throw new Error('http ' + r.status);
+      const j = await r.json(); if (!j || !Array.isArray(j.elements)) throw new Error('bad answer'); return j;
+    } finally { clearTimeout(t); }
+  }));
+  try { return await once(); } catch (e) { await new Promise((ok) => setTimeout(ok, 1200)); return once(); }
 }
+const ask = overpass;
 
 /* entrances around a point, nearest first. radius in metres */
 export async function entrancesAround(lat, lng, radius) {
@@ -20,7 +25,11 @@ export async function entrancesAround(lat, lng, radius) {
   if (mem.has(key)) return mem.get(key);
   try { const o = JSON.parse(localStorage.getItem('bl_en:' + key) || 'null'); if (o && Date.now() - o.t < 7 * 864e5) { mem.set(key, o.d); return o.d; } } catch (e) { /* none */ }
   const q = '[out:json][timeout:9];(node["railway"="subway_entrance"](around:' + r + ',' + lat + ',' + lng + ');node["railway"="train_station_entrance"](around:' + r + ',' + lat + ',' + lng + ');node["entrance"]["public_transport"](around:' + r + ',' + lat + ',' + lng + '););out body;';
-  const j = await ask(q);
+  let j;
+  try { j = await ask(q); } catch (e) {
+    try { const o = JSON.parse(localStorage.getItem('bl_en:' + key) || 'null'); if (o) return o.d; } catch (e2) { /* none */ }
+    throw e;
+  }
   const seen = {};
   const list = (j.elements || []).filter((e) => e.type === 'node' && e.lat != null).map((e) => {
     const t = e.tags || {}, lo = e.lon != null ? e.lon : e.lng; // Overpass writes lon

@@ -1,5 +1,6 @@
 import NET from './data.json';
 import { createRouter } from './route.js';
+import { curveAt } from './curve.js';
 
 export { NET };
 export const R = createRouter(NET);
@@ -47,17 +48,8 @@ export function lum(hex) {
   return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
 }
 
-// position on the route path for a float station index
+// position on the route path for a float station index (a smooth curve through the stations)
 export function pointAt(overlay, idx) {
-  const p = overlay.path.pts;
-  let i = Math.floor(idx);
-  if (i >= p.length - 1) i = p.length - 2;
-  if (i < 0) i = 0;
-  const t = idx - i;
-  return {
-    x: p[i].x + (p[i + 1].x - p[i].x) * t,
-    y: p[i].y + (p[i + 1].y - p[i].y) * t,
-    ang: Math.atan2(p[i + 1].y - p[i].y, p[i + 1].x - p[i].x),
-    i,
-  };
+  const p = overlay.path.pts, c = curveAt(p.map((q) => [q.x, q.y]), idx);
+  return { x: c.x, y: c.y, ang: c.ang, i: c.i };
 }

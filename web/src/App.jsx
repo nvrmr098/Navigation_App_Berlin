@@ -6,6 +6,8 @@ import { Badge, SearchBox, Ico, BerlinClock, BackBtn } from './ui.jsx';
 import Splash from './splash.jsx';
 const ModeMap = React.lazy(() => import('./modemap.jsx'));
 const WalkView = React.lazy(() => import('./walkview.jsx'));
+import { setLay } from './layoutstate.js';
+const ArrivePage = React.lazy(() => import('./arrive.jsx'));
 import { meters } from './walk.js';
 import { beep } from './geo.js';
 import { SHARE_API, VOICE_ASSISTANT } from './config.js';
@@ -700,11 +702,14 @@ export default function App() {
         )}
         {mode === 'live' && !info.off && !finished && <div id="hud"><span>{info.hud}</span></div>}
 
-        {mode === 'live' && finished && source === 'gps' && !(gen && /^(bus|tram|ferry)$/.test(ov.current.route.legs[ov.current.route.legs.length - 1].mode)) && (
-          <button className="btn alt endexit" onClick={() => { const sB = ST[ov.current.route.to]; openExits(sB.name, sB.lat, sB.lng, nav.toPlace || null); }}><Ico n="door" />{tr('entTitle')}</button>
-        )}
-        {mode === 'live' && finished && source === 'gps' && nav.toPlace && (
-          <button className="btn endwalk" onClick={() => { const f = live.current.fix, o = ov.current, sB = ST[o.route.to]; setWalk({ from: f ? { lat: f.lat, lng: f.lng } : { lat: sB.lat, lng: sB.lng }, to: nav.toPlace, title: nav.toPlace.name }); }}><Ico n="walk" />{tr('walkTo2s', { place: nav.toPlace.name })}</button>
+        {mode === 'live' && finished && ov.current && (
+          <React.Suspense fallback={null}>
+            <ArrivePage route={ov.current.route} place={nav.toPlace || null}
+              onExits={() => { const sB = ST[ov.current.route.to]; openExits(sB.name, sB.lat, sB.lng, nav.toPlace || null); }}
+              onLayout={() => { setLay(ST[ov.current.route.to].name); setModal('layout'); }}
+              onWalk={() => { const f = live.current.fix, o = ov.current, sB = ST[o.route.to]; setWalk({ from: f ? { lat: f.lat, lng: f.lng } : { lat: sB.lat, lng: sB.lng }, to: nav.toPlace, title: nav.toPlace.name }); }}
+              onNew={() => { endNav(); setPage('pNav'); }} onDone={() => endNav()} />
+          </React.Suspense>
         )}
         {(mode === 'live' || mode === 'show') && (
           <div id="navctl">

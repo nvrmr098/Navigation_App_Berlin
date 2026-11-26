@@ -9,7 +9,7 @@ import { listen, speechLang, voiceAvailable } from './voice.js';
 import { journeyToRoute } from './journey-route.js';
 import { parseIntent, special } from './intent.js';
 import { resolveText, nearest } from './search.js';
-import { entrancesAround, entranceLabel } from './entrances.js';
+import { entrancesAround, entranceLabel, overpass } from './entrances.js';
 import { setOffsetFrom, resetCalib, offsetMeters } from './calibrate.js';
 import AutoCalibPanel from './autocalib.jsx';
 
@@ -40,17 +40,17 @@ export function TicketHelper({ nav }) {
 }
 
 const ovCache = {};
-async function nearbyAmenities(lat, lng) {
+export async function nearbyAmenities(lat, lng) {
   const k = lat.toFixed(4) + lng.toFixed(4); if (ovCache[k]) return ovCache[k];
-  const a = '(around:250,' + lat + ',' + lng + ')';
-  const q = '[out:json][timeout:12];(node' + a + '[amenity=toilets];way' + a + '[amenity=toilets];node' + a + '[highway=elevator];node' + a + '[elevator=yes];);out center 40;';
-  const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 12000);
-  try {
-    const r = await fetch('https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(q), { signal: ctl.signal }); if (!r.ok) throw new Error('http');
-    const j = await r.json();
-    const out = (j.elements || []).map((e) => { const p = e.center || e; const t = e.tags || {}; return { kind: t.amenity === 'toilets' ? 'wc' : 'lift', d: Math.round(distKm(lat, lng, p.lat, p.lon) * 1000), fee: t.fee === 'yes', wheel: t.wheelchair === 'yes' }; }).sort((a, b) => a.d - b.d);
-    ovCache[k] = out; return out;
-  } finally { clearTimeout(t); }
+  try { const o = JSON.parse(localStorage.getItem('bl_am:' + k) || 'null'); if (o && Date.now() - o.t < 7 * 864e5) { ovCache[k] = o.d; return o.d; } } catch (e) { /* none */ }
+  const a = '(around:380,' + lat + ',' + lng + ')';
+  // lifts are mapped in several ways: highway=elevator, elevator=yes, entrances with a lift, indoor lifts on platforms
+  const q = '[out:json][timeout:14];(node' + a + '[amenity=toilets];way' + a + '[amenity=toilets];node' + a + '[highway=elevator];node' + a + '[elevator=yes];node' + a + '["railway"~"subway_entrance|train_station_entrance"]["elevator"];node' + a + '["entrance"]["wheelchair"="yes"]["public_transport"];way' + a + '["highway"="elevator"];);out center 60;';
+  let j;
+  try { j = await overpass(q, 15000); } catch (e) { try { const o = JSON.parse(localStorage.getItem('bl_am:' + k) || 'null'); if (o) return o.d; } catch (e2) { /* none */ } throw e; }
+  const out = (j.elements || []).map((e) => { const p = e.center || e; const t = e.tags || {}; const lift = t.highway === 'elevator' || t.elevator === 'yes' || (t.elevator && t.elevator !== 'no') || (t.entrance && t.wheelchair === 'yes'); return { kind: t.amenity === 'toilets' ? 'wc' : lift ? 'lift' : null, d: Math.round(distKm(lat, lng, p.lat, p.lon != null ? p.lon : p.lng) * 1000), fee: t.fee === 'yes', name: t.name || t.ref || t.description || '', level: t.level || '' }; }).filter((x) => x.kind).sort((x, y) => x.d - y.d);
+  ovCache[k] = out; try { localStorage.setItem('bl_am:' + k, JSON.stringify({ t: Date.now(), d: out })); } catch (e) { /* full */ }
+  return out;
 }
 
 /* pick any station, street or place (places resolve to the nearest S+U station) */
@@ -64,7 +64,7 @@ export function PlacePick({ store, onName }) {
   );
 }
 
-export function StationHelp({ names: n0, store }) {
+export function StationHelp({ names: n0, store, onLayout }) {
   const [extra, setExtra] = useState([]);
   const names = [...extra, ...n0.filter((x) => extra.indexOf(x) < 0)];
   const [name, setName] = useState(n0[0] || '');
@@ -86,9 +86,10 @@ export function StationHelp({ names: n0, store }) {
       <div className="sec">{tr('shPlatforms')}</div>
       {plat === null ? <p className="mute">{tr('shChecking')}</p> : plat.length ? <div className="plist">{plat.map((p) => <div key={p[0]} className="li" style={{ padding: '6px 0' }}><Badge line={p[0]} /><span className="tx" style={{ marginLeft: 8 }}>{tr('platform')} {p[1]}</span></div>)}</div> : <p className="mute">{tr('shNoPlat')}</p>}
       <div className="sec">{tr('shLifts')}</div>
-      {am === null ? <p className="mute">{tr('shChecking')}</p> : am === 'err' ? <p className="mute">{tr('liveOff')}</p> : lf.length ? <p>{lf.slice(0, 4).map((x) => x.d + ' m').join(' · ')}</p> : <p className="mute">{tr('shNone')}</p>}
+      {am === null ? <p className="mute">{tr('shChecking')}</p> : am === 'err' ? <p className="mute">{tr('liveOff')}</p> : lf.length ? <p>{lf.slice(0, 5).map((x) => x.d + ' m' + (x.name ? ' (' + x.name + ')' : x.level ? ' (' + x.level + ')' : '')).join(' · ')}</p> : <p className="mute">{tr('shNone')}</p>}
       <div className="sec">{tr('shToilets')}</div>
       {am === null ? <p className="mute">{tr('shChecking')}</p> : am === 'err' ? <p className="mute">{tr('liveOff')}</p> : wc.length ? <p>{wc.slice(0, 4).map((x) => x.d + ' m' + (x.fee ? ' (€)' : '')).join(' · ')}</p> : <p className="mute">{tr('shNone')}</p>}
+      {s && onLayout && <button className="btn sm" style={{ display: 'inline-flex', marginTop: 6, marginRight: 8 }} onClick={() => onLayout(name)}><Ico n="building" />{tr('layTitle')}</button>}
       {s && <a className="btn alt sm" style={{ display: 'inline-flex', marginTop: 6 }} href={'https://www.openstreetmap.org/?mlat=' + s.lat + '&mlon=' + s.lng + '#map=18/' + s.lat + '/' + s.lng} target="_blank" rel="noopener noreferrer"><Ico n="map" />{tr('shOsm')}</a>}
       <p className="mute" style={{ marginTop: 10 }}>{tr('shCred')}</p>
     </>
@@ -227,14 +228,14 @@ export function EntrancesModal({ name, lat, lng, dest, onWalk }) {
     entrancesAround(lat, lng, 300).then((l) => { if (!dead) setSt({ s: 'ok', list: l }); }).catch(() => { if (!dead) setSt({ s: 'err', list: [] }); });
     return () => { dead = true; };
   }, [lat, lng]);
-  const list = dest ? st.list.map((e) => ({ ...e, d: Math.round(distKm(dest.lat, dest.lng, e.lat, e.lng) * 1000) })).sort((a, b) => a.d - b.d) : st.list;
+  const base = st.s === 'err' || (st.s === 'ok' && !st.list.length) ? [{ lat, lng, ref: '', name, wheelchair: '', level: '', desc: '', m: 0, approx: true }] : st.list;
+  const list = dest ? base.map((e) => ({ ...e, d: Math.round(distKm(dest.lat, dest.lng, e.lat, e.lng) * 1000) })).sort((a, b) => a.d - b.d) : st.list;
   return (
     <>
       <h3>{tr('entTitle')}</h3>
       <p><b>{name}</b>{dest ? <small className="mute"> {tr('entTo', { p: dest.name })}</small> : null}</p>
       {st.s === 'loading' && <p className="mute">{tr('shChecking')}</p>}
-      {st.s === 'err' && <p className="mute">{tr('liveOff')}</p>}
-      {st.s === 'ok' && !list.length && <p className="mute">{tr('entNone')}</p>}
+      {(st.s === 'err' || (st.s === 'ok' && !list.length)) && <p className="mute">{tr('entApprox')}</p>}
       {list.slice(0, 10).map((e, i) => (
         <div key={i} className={'plc ent' + (i === 0 ? ' best' : '')}>
           <span className="pi"><Ico n="door" /></span>

@@ -1,5 +1,6 @@
 /* Geo helpers: GPS tracking, projection onto the schematic map, snapping a position onto a route. */
 import { ST, clamp } from './net.js';
+import { curveAt } from './curve.js';
 
 // must match scripts/build_data.py
 const LAT0 = 52.52, LON0 = 13.405, PP = 0.55, PC = 1.75, YSTRETCH = 1.3;
@@ -49,10 +50,11 @@ export function snapToRoute(overlay, lat, lng, prevIdx) {
 export function geoAt(overlay, idx) {
   const pts = overlay.path.pts;
   let i = Math.floor(idx); if (i >= pts.length - 1) i = pts.length - 2; if (i < 0) i = 0;
-  const t = clamp(idx - i, 0, 1), a = ST[pts[i].st], b = ST[pts[i + 1].st];
-  const lat = a.lat + (b.lat - a.lat) * t, lng = a.lng + (b.lng - a.lng) * t;
-  const dx = kx(b.lng, b.lat) - kx(a.lng, a.lat), dy = ky(b.lat) - ky(a.lat);
-  const bearing = (Math.atan2(dx, dy) * 180 / Math.PI + 360) % 360;
+  const t = clamp(idx - i, 0, 1), a = ST[pts[i].st];
+  // a smooth curve through the stations (in local metres), so trains take bends instead of corners
+  const k0 = Math.cos(a.lat * Math.PI / 180), xy = pts.map((p) => [ST[p.st].lng * k0, ST[p.st].lat]);
+  const c = curveAt(xy, i + t), lat = c.y, lng = c.x / k0;
+  const bearing = (Math.atan2(Math.cos(c.ang), Math.sin(c.ang)) * 180 / Math.PI + 360) % 360;
   return { lat, lng, bearing };
 }
 

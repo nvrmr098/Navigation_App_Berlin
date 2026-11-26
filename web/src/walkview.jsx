@@ -36,7 +36,7 @@ export default function WalkView({ from, to, title, dark, onClose, onArrive, toS
   const [calib, setCalibUi] = useState('closed'), calibRef = useRef('closed');
   const [mapReady, setMapReady] = useState(false);
   const av = useRef({ stage: null, canvas: null, pos: { lat: from.lat, lng: from.lng }, speed: 0, mode: 'idle', lastFix: 0, lastPos: null, lastT: 0 });
-  const cvRef = useRef(null), markers = useRef([]);
+  const dotRef = useRef(null), cvRef = useRef(null), markers = useRef([]);
 
   const setPickBoth = (p) => { setPick(p); if (p) dest.current = { lat: p.lat, lng: p.lng }; };
 
@@ -142,7 +142,11 @@ export default function WalkView({ from, to, title, dark, onClose, onArrive, toS
         stage.setHeading(((hd || 0) - bear), a.firstFrame !== true); a.firstFrame = true;
         stage.setPitch(Math.max(50, Math.min(72, pitch < 5 ? 56 : 40 + pitch * 0.45)));
         const pt = m.project([a.pos.lng, a.pos.lat]);
-        cvRef.current.style.transform = 'translate(' + Math.round(pt.x - AV / 2) + 'px,' + Math.round(pt.y - AV * 0.64) + 'px)';
+        // zoomed out a lot: the characters shrink away and a blue dot takes over
+        const zk = Math.max(0, Math.min(1, (m.getZoom() - 15.2) / 1.7)), sc = 0.4 + 0.6 * zk;
+        cvRef.current.style.transform = 'translate(' + Math.round(pt.x - AV / 2) + 'px,' + Math.round(pt.y - AV * 0.64) + 'px) scale(' + sc.toFixed(3) + ')';
+        cvRef.current.style.opacity = zk < 0.02 ? 0 : Math.min(1, zk * 1.4).toFixed(2);
+        if (dotRef.current) { dotRef.current.style.transform = 'translate(' + Math.round(pt.x - 17) + 'px,' + Math.round(pt.y - 17) + 'px)'; dotRef.current.style.opacity = (1 - Math.min(1, zk * 1.4)).toFixed(2); }
         // idle, walk, jog or run comes from the smoothed GPS speed (hysteresis inside the mascot); hidden above 7 m/s
         const stale = Date.now() - a.lastFix > 5000;
         const sp = stale ? 0 : (window.__avatarSpeed != null ? window.__avatarSpeed : a.speed);
@@ -274,7 +278,8 @@ export default function WalkView({ from, to, title, dark, onClose, onArrive, toS
   return (
     <div className={'walkview' + (calib === 'pin' ? ' pinning' : '')}>
       <div ref={box} className="wk-map" />
-      <canvas ref={cvRef} className="avatar3d" width={AV} height={AV} style={{ width: AV, height: AV }} />
+      <canvas ref={cvRef} className="avatar3d" width={AV} height={AV} style={{ width: AV, height: AV, transformOrigin: '50% 64%' }} />
+      <div ref={dotRef} className="wk-dot" aria-hidden="true"><i /><b /></div>
       {calib === 'pin' && <div className="wk-cross"><i /><span>{tr('calibPinHint')}</span></div>}
       <div className="wk-top glass">
         <button className="wk-back" aria-label={tr('back')} onClick={onClose}><Ico n="back" /></button>

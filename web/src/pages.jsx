@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { changeTip } from './carriage.js';
+import { setLay } from './layoutstate.js';
+const StationLayout = React.lazy(() => import('./layout.jsx'));
 import { CoachGuide } from './coach.jsx';
 import { meters, walkMin } from './walk.js';
 import { loadStops } from './modestops.js';
@@ -77,6 +79,7 @@ function RouteCard({ fromPlace, toPlace, onModal, r, i, sel, when, onSelect, onS
                 <React.Fragment key={li}>
                   {lg.walkIn && <li className="walkli" style={{ '--c': '#8a93aa' }}><span className="pin" /><b><Ico n="walk" className="s" />{tr('walkBetween', { m: lg.walkIn.min, d: lg.walkIn.m >= 1000 ? (lg.walkIn.m / 1000).toFixed(1) + ' km' : lg.walkIn.m + ' m', st: a.name })}</b></li>}
                   <li style={{ '--c': lg.c }}><span className="pin" /><b>{li === 0 ? tr('startAt') : tr('changeAt')} {a.name}{gen && lg.dep ? ' · ' + fmtTime(lg.dep) : ''}{gen && lg.platform ? ' · ' + tr('platform') + ' ' + lg.platform : ''}</b>
+                    {li > 0 && <button className="chip tool laylink" onClick={(e) => { e.stopPropagation(); setLay(a.name, r.legs[li - 1].line, lg.line); onModal('layout'); }}><Ico n="building" className="s" />{tr('layTitle')}</button>}
                     {li > 0 && tips[li] && (tips[li].ride ? <CoachGuide pos={tips[li].ride} toward={r.legs[li - 1].toward} color={r.legs[li - 1].c} /> : <small className="tip"><Ico n="bulb" /><span>{tips[li].text}</span></small>)}
                     <small><Badge line={lg.line} /> {tr('towards')} {lg.toward} &middot; {cnt('stop', lg.stops)} &middot; {Math.round(lg.rideMin)} {tr('min')}</small>
                   </li>
@@ -450,10 +453,12 @@ export function ModalContent({ kind, store, setStore, board, boardOpts, onFav, o
   switch (kind) {
     case 'tkt':
       return <TicketHelper nav={nav} />;
+    case 'layout':
+      return <React.Suspense fallback={null}><StationLayout /></React.Suspense>;
     case 'opts':
       return <OptionsSheet store={store} setStore={setStore} onModal={onModal} />;
     case 'sthelp':
-      return <StationHelp store={store} names={stNames && stNames.length ? stNames : ['Alexanderplatz']} />;
+      return <StationHelp store={store} names={stNames && stNames.length ? stNames : ['Alexanderplatz']} onLayout={(n) => { setLay(n); onModal('layout'); }} />;
     case 'alt':
       return <Alternatives nav={nav} store={store} />;
     case 'night':
