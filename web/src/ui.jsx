@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { R, INFO, lum } from './net.js';
+import { R, INFO, lum, lineInfo } from './net.js';
 import { tr } from './i18n.js';
 import { searchStops, searchStreets } from './search.js';
 
@@ -89,7 +89,7 @@ export function Logo({ size = 96, id = 'lg' }) {
 }
 
 export function Badge({ line, big }) {
-  const inf = INFO[line] || { c: /^(M?\d|RE|RB)/.test(line) ? (/^R/.test(line) ? '#d6001c' : /^M?\d{1,2}$/.test(line) ? '#c8102e' : '#a5027d') : '#6b7280', p: 'o' };
+  const inf = lineInfo(line);
   const c = inf.c;
   return <span className={'bdg ' + inf.p + (big ? ' lg' : '')} style={{ background: c, color: lum(c) > 0.72 ? '#222' : '#fff' }}>{line}</span>;
 }

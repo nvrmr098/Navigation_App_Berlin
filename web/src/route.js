@@ -62,7 +62,18 @@ const api = (function () {
         return a.localeCompare(b, 'en', { numeric: true });
       });
     });
-    var H = nodes.length, N = H + ST.length * 2;
+    // stops of live journeys that are not in the S/U data live at ST[100000 + n]. They never show up when the array is iterated or searched.
+    var VX = {}, vKey = {}, vN = 100000;
+    function virt(o) {
+      var k = o.vid || (o.name + '@' + o.lat.toFixed(5) + ',' + o.lng.toFixed(5));
+      if (k in vKey) return vKey[k];
+      var i = vN++;
+      VX[i] = { i: i, name: o.name, lat: o.lat, lng: o.lng, x: o.x, y: o.y, w: 0, n: norm(o.name), lines: [], virt: true, vid: o.vid || '' };
+      vKey[k] = i; return i;
+    }
+    var RAW = ST;
+    ST = new Proxy(RAW, { get: function (t, k, r) { if (typeof k === 'string' && k.charCodeAt(0) > 47 && k.charCodeAt(0) < 58) { var n = +k; if (n >= 100000) return VX[n]; } return Reflect.get(t, k, r); } });
+    var H = nodes.length, N = H + RAW.length * 2;
     function hub(s, p) { return H + s * 2 + (p === 'S' ? 0 : 1); }
     var adj = [];
     for (var i = 0; i < N; i++) adj.push([]);
@@ -70,7 +81,7 @@ const api = (function () {
       var e = ride[k];
       adj[ln(e.line, e.a)].push({ to: ln(e.line, e.b), c: e.t, ride: e });
     });
-    var boardAt = ST.map(function () { return []; });
+    var boardAt = RAW.map(function () { return []; });
     nodes.forEach(function (nd, id) {
       adj[id].push({ to: hub(nd.st, INFO[nd.line].p), c: 0, ride: null });
       boardAt[nd.st].push({ line: nd.line, node: id, p: INFO[nd.line].p });
@@ -179,7 +190,7 @@ const api = (function () {
       route.legs.forEach(function (lg, li) {
         var from = pts.length ? pts.length - 1 : 0;
         lg.stations.forEach(function (s, k) {
-          if (li > 0 && k === 0) return;
+          if (li > 0 && k === 0 && pts.length && pts[pts.length - 1].st === s) return;
           pts.push({ st: s, x: ST[s].x, y: ST[s].y, leg: li });
         });
         legs.push({ a: from, b: pts.length - 1 });
@@ -235,7 +246,7 @@ const api = (function () {
       return r[0] || null;
     }
 
-    return { ST: ST, INFO: INFO, routes: routes, routePath: routePath, indexAt: indexAt, legAt: legAt, search: search, byName: byName, norm: norm };
+    return { ST: ST, virt: virt, INFO: INFO, routes: routes, routePath: routePath, indexAt: indexAt, legAt: legAt, search: search, byName: byName, norm: norm };
   }
 
   return { create: create };

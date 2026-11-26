@@ -20,6 +20,9 @@ export default {
     ins_straight: 'Go straight', ins_slight_left: 'Bear left', ins_slight_right: 'Bear right', ins_turn_left: 'Turn left', ins_turn_right: 'Turn right', ins_back: 'Turn around', ins_wait: 'Walk a few steps to find your direction',
     updTitleAll: 'All services', rainSoon: 'Rain expected in about {n} min. Take an umbrella.', rainNow: 'It is raining at the start. Take an umbrella.', nightNote: 'Late night: fewer trains run. Check the live times before you leave.',
     commuteSave: 'Save as commute', commuteSaved: 'Commute saved', commutes: 'My commutes', stopNext: 'Next stop: {st}', staleNote: 'Offline. Showing the last known data from {t}.',
+    fasterVia: 'Faster with {m}', fasterSave: '{n} min faster than S and U only', modeRE: 'regional train', modeBus: 'bus', modeTram: 'tram', modeFerry: 'ferry',
+    walkToStop: 'Walk to {name}', walkToStopSub: 'About {d} to go, then take {line} towards {toward}{t}', pressStop: 'Press the stop button', atStop: 'You are at {name}', atStopSub: 'Wait for {line} towards {toward}{t}', walkBetween: 'Walk {m} min ({d}) to {st}',
+    altWalkOnly: 'Walking only: open walking view', mapFail: 'The street map could not load. Showing the simple map.',
   },
   de: {
     splashTag: 'Dein Berlin, pünktlich', back: 'Zurück', backAgain: 'Noch einmal zurück, um die Navigation zu beenden', reset: 'Zurücksetzen',
@@ -41,5 +44,8 @@ export default {
     ins_straight: 'Geradeaus', ins_slight_left: 'Leicht links', ins_slight_right: 'Leicht rechts', ins_turn_left: 'Links abbiegen', ins_turn_right: 'Rechts abbiegen', ins_back: 'Umdrehen', ins_wait: 'Geh ein paar Schritte, damit ich deine Richtung erkenne',
     updTitleAll: 'Alle Verkehrsmittel', rainSoon: 'In etwa {n} Min. Regen. Nimm einen Schirm mit.', rainNow: 'Am Start regnet es. Nimm einen Schirm mit.', nightNote: 'Spät in der Nacht fahren weniger Züge. Prüfe die Live-Zeiten, bevor du losgehst.',
     commuteSave: 'Als Pendelstrecke speichern', commuteSaved: 'Pendelstrecke gespeichert', commutes: 'Meine Strecken', stopNext: 'Nächster Halt: {st}', staleNote: 'Offline. Letzte bekannte Daten von {t}.',
+    fasterVia: 'Schneller mit {m}', fasterSave: '{n} Min. schneller als nur S und U', modeRE: 'Regionalzug', modeBus: 'Bus', modeTram: 'Tram', modeFerry: 'Fähre',
+    walkToStop: 'Zu Fuß zu {name}', walkToStopSub: 'Noch etwa {d}, dann {line} Richtung {toward}{t}', pressStop: 'Haltewunsch drücken', atStop: 'Du bist an {name}', atStopSub: 'Warte auf {line} Richtung {toward}{t}', walkBetween: 'Zu Fuß {m} Min. ({d}) zu {st}',
+    altWalkOnly: 'Nur zu Fuß: Wegansicht öffnen', mapFail: 'Die Straßenkarte konnte nicht geladen werden. Es wird die einfache Karte gezeigt.',
   },
 };

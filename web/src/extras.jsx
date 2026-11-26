@@ -94,13 +94,13 @@ export function StationHelp({ names: n0, store }) {
   );
 }
 
-export function Alternatives({ nav, store, inline, onStart }) {
+export function Alternatives({ nav, store, inline, onStart, onWalk }) {
   const [stepFree, setSf] = useState(!!store.step);
   const [st, setSt] = useState({ s: 'loading', list: [] });
   const a = nav.from && nav.from.name, b = nav.to && nav.to.name;
   useEffect(() => {
     if (!a || !b) return undefined; let dead = false; setSt({ s: 'loading', list: [] });
-    journeys(a, b, { results: 4, stepFree, when: Date.now() }).then((l) => { if (!dead) setSt({ s: 'ok', list: l }); }).catch(() => { if (!dead) setSt({ s: 'err', list: [] }); });
+    journeys(a, b, { results: 5, stepFree, when: Date.now(), stopovers: !!onStart }).then((l) => { if (!dead) setSt({ s: 'ok', list: l }); }).catch(() => { if (!dead) setSt({ s: 'err', list: [] }); });
     return () => { dead = true; };
   }, [a, b, stepFree]);
   if (!a || !b) return (<><h3>{tr('alTitle')}</h3><p className="mute">{tr('tkNoRoute')}</p></>);
@@ -118,7 +118,9 @@ export function Alternatives({ nav, store, inline, onStart }) {
           {j.warn && <small className="wn"><Ico n="warn" />{tr('alDisr')}</small>}
           {onStart && (conv && conv.route
             ? <button className="btn sm altgo" onClick={() => onStart(conv.route)}><Ico n="nav" />{tr('start')}</button>
-            : <small className="altno"><Ico n="info" />{tr(conv && conv.reason === 'modes' ? 'altOtherModes' : 'altNoRoute')}</small>)}
+            : conv && conv.walk
+              ? <button className="btn sm altgo" onClick={() => onWalk && onWalk(conv.walk)}><Ico n="walk" />{tr('altWalkOnly')}</button>
+              : <small className="altno"><Ico n="info" />{tr('altNoRoute')}</small>)}
         </div>
       ); })}
       {!inline && <p className="mute">{tr('credLive')}</p>}

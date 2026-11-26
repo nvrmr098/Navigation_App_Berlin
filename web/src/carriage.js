@@ -11,6 +11,7 @@ const where = (p) => (p >= 0.8 ? 'front' : p <= 0.2 ? 'rear' : 'middle');
 
 // tip for changing from leg `a` to leg `b` (route legs) or null when nothing is known
 export function changeTip(a, b) {
+  if (a.generic || b.generic) return null;
   const x = ST[b.stations[0]].name;
   const rows = (byStation[x] || []).filter((r) => r[1].indexOf(a.line) > -1 && r[4].indexOf(b.line) > -1);
   if (!rows.length) return null;

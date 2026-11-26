@@ -14,6 +14,7 @@ export class RealMap3D {
   constructor(container, opts) {
     this.container = container; this.opts = opts; this.map = null; this.loaded = false; this.dead = false;
     this.bearing = 0; this.lastJump = 0; this.follow = true; this.veh = null; this.me = null; this.ml = null;
+    this.tilt = !(opts && opts.flat); this.route = null;
   }
 
   async init(overlay) {
@@ -31,7 +32,7 @@ export class RealMap3D {
       const map = new ml.Map({
         container: this.container,
         style: styleOverride || (dark ? STYLE_DARK : STYLE_LIGHT),
-        center: [start.lng, start.lat], zoom: 16, pitch: 62, bearing: start.bearing, maxPitch: 78,
+        center: [start.lng, start.lat], zoom: 16, pitch: this.tilt ? 62 : 0, bearing: this.tilt ? start.bearing : 0, maxPitch: 78,
         attributionControl: false, fadeDuration: 0, canvasContextAttributes: { antialias: true },
       });
       this.map = map;
@@ -41,7 +42,7 @@ export class RealMap3D {
       map.on('dragstart', () => { this.follow = false; this.opts.onUserMove && this.opts.onUserMove(); });
       map.on('load', () => {
         clearTimeout(timer); if (this.dead) return;
-        try { this.addBuildings(dark); this.tune(dark); this.addRoute(overlay); this.addMarkers(overlay); } catch (err) { fail(String(err)); return; }
+        try { this.addBuildings(dark); this.tune(dark); this.addRoute(overlay); this.addMarkers(overlay); this.route = overlay.route; if (this.opts.fit) { this.follow = false; this.fit(overlay, this.opts.fit); } } catch (err) { fail(String(err)); return; }
         this.loaded = true; onReady && onReady();
       });
     } catch (err) { fail(String(err)); }
@@ -98,10 +99,14 @@ export class RealMap3D {
 
   addRoute(overlay) {
     const map = this.map, route = overlay.route, pts = overlay.path.pts;
-    const features = route.legs.map((lg, li) => {
-      const seg = overlay.path.legs[li], coords = [];
-      for (let i = seg.a; i <= seg.b; i++) coords.push([ST[pts[i].st].lng, ST[pts[i].st].lat]);
-      return { type: 'Feature', properties: { c: lg.c, p: lg.p }, geometry: { type: 'LineString', coordinates: coords } };
+    const features = [];
+    route.legs.forEach((lg, li) => {
+      const seg = overlay.path.legs[li], coords = [], ll = (i) => [ST[pts[i].st].lng, ST[pts[i].st].lat];
+      // a walk between two stops is drawn dashed and grey, the ride starts at its own first stop
+      const from = lg.walkIn && seg.b > seg.a ? seg.a + 1 : seg.a;
+      if (from > seg.a) features.push({ type: 'Feature', properties: { c: '#8a93aa', p: 'W' }, geometry: { type: 'LineString', coordinates: [ll(seg.a), ll(seg.a + 1)] } });
+      for (let i = from; i <= seg.b; i++) coords.push(ll(i));
+      features.push({ type: 'Feature', properties: { c: lg.c, p: lg.p }, geometry: { type: 'LineString', coordinates: coords } });
     });
     const stops = pts.map((p) => ({ type: 'Feature', properties: { name: ST[p.st].name }, geometry: { type: 'Point', coordinates: [ST[p.st].lng, ST[p.st].lat] } }));
     map.addSource('rb-route', { type: 'geojson', data: { type: 'FeatureCollection', features } });
@@ -110,6 +115,8 @@ export class RealMap3D {
     map.addLayer({ id: 'rb-route-case', type: 'line', source: 'rb-route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': this.dark ? '#0a0f1c' : '#ffffff', 'line-width': 9, 'line-opacity': 0.9 } });
     map.addLayer({ id: 'rb-route-s', type: 'line', source: 'rb-route', filter: ['==', ['get', 'p'], 'S'], layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': ['get', 'c'], 'line-width': 5.5 } });
     map.addLayer({ id: 'rb-route-u', type: 'line', source: 'rb-route', filter: ['==', ['get', 'p'], 'U'], layout: { 'line-join': 'round' }, paint: { 'line-color': ['get', 'c'], 'line-width': 6, 'line-dasharray': [2, 1.3] } });
+    map.addLayer({ id: 'rb-route-o', type: 'line', source: 'rb-route', filter: ['!', ['in', ['get', 'p'], ['literal', ['S', 'U', 'W']]]], layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': ['get', 'c'], 'line-width': 6 } });
+    map.addLayer({ id: 'rb-route-w', type: 'line', source: 'rb-route', filter: ['==', ['get', 'p'], 'W'], layout: { 'line-join': 'round' }, paint: { 'line-color': this.dark ? '#aab4d0' : '#6b7690', 'line-width': 4, 'line-dasharray': [1, 1.6] } });
     map.addLayer({ id: 'rb-stops-dot', type: 'circle', source: 'rb-stops', paint: { 'circle-radius': 5.5, 'circle-color': '#ffffff', 'circle-stroke-color': this.dark ? '#4f6bff' : '#1d1d1b', 'circle-stroke-width': 2 } });
     if (map.getStyle().glyphs) {
       map.addLayer({
@@ -129,9 +136,28 @@ export class RealMap3D {
     this.meEl = me; this.me = new ml.Marker({ element: me }).setLngLat(this.map.getCenter()).addTo(this.map);
   }
 
-  setLeg(overlay, li) {
+  setLeg(overlay, li, walking) {
     if (!this.vehEl) return; const lg = overlay.route.legs[li];
-    const b = this.vehEl.querySelector('b'); b.textContent = lg.line; b.style.background = lg.c;
+    const b = this.vehEl.querySelector('b'); b.textContent = walking ? '\u{1F6B6}' : lg.line; b.style.background = walking ? '#6b7690' : lg.c;
+  }
+
+  /* 2D (flat, north up) or 3D (tilted, heading up) */
+  setTilt(on) {
+    this.tilt = !!on; if (!this.map) return;
+    this.map.easeTo({ pitch: on ? 62 : 0, bearing: on ? this.bearing : 0, duration: 600 });
+  }
+  zoomBy(d) {
+    if (!this.map) return;
+    const z = Math.max(12, Math.min(19, this.map.getZoom() + d)); if (this.tilt) this.zoomTilt = z; else this.zoomFlat = z;
+    this.map.easeTo({ zoom: z, duration: 260 });
+  }
+  /* show the whole route (preview) */
+  fit(overlay, pad) {
+    if (!this.map) return;
+    const pts = overlay.path.pts; let a = 1e9, b = 1e9, c = -1e9, d = -1e9;
+    pts.forEach((p) => { const s = ST[p.st]; a = Math.min(a, s.lng); c = Math.max(c, s.lng); b = Math.min(b, s.lat); d = Math.max(d, s.lat); });
+    const pd = pad && typeof pad === 'object' ? pad : { top: 130, bottom: 230 };
+    this.map.fitBounds([[a, b], [c, d]], { padding: { top: pd.top, bottom: pd.bottom, left: 36, right: 36 }, maxZoom: 16.5, pitch: 0, bearing: 0, duration: 0 });
   }
 
   // move the vehicle marker and (when following) the camera
@@ -143,7 +169,7 @@ export class RealMap3D {
     if (this.follow && now - this.lastJump > 33) {
       this.lastJump = now;
       const h = this.container.clientHeight || 600;
-      this.map.jumpTo({ center: [g.lng, g.lat], bearing: this.bearing, pitch: 62, zoom: 16.2, padding: { top: Math.round(h * 0.3), bottom: 0, left: 0, right: 0 } });
+      this.map.jumpTo({ center: [g.lng, g.lat], bearing: this.tilt ? this.bearing : 0, pitch: this.tilt ? 62 : 0, zoom: this.tilt ? this.zoomTilt || 16.2 : this.zoomFlat || 16, padding: { top: Math.round(h * (this.tilt ? 0.3 : 0.18)), bottom: 0, left: 0, right: 0 } });
     }
   }
 

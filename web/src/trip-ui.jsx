@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { fetchTrip, fetchChange } from './trip.js';
+import { fetchTrip, fetchChange, placeOf } from './trip.js';
 import { tr, fmtTime } from './i18n.js';
 import { Ico, LineTag } from './ui.jsx';
 import { changeTip } from './carriage.js';
@@ -8,7 +8,7 @@ import { CoachGuide } from './coach.jsx';
 import { tripNotify, tripNotifyEnd } from './notify.js';
 
 /* polls the live trip every 25 s; keeps the last good data when a refresh fails */
-export function useTrip(active, route, li, nextName, destName) {
+export function useTrip(active, route, li, nextName, destName, nextIdx) {
   const [st, setSt] = useState({ key: '', trip: null, change: null, state: 'loading' });
   const key = active && route && nextName ? route.from + '-' + route.to + '|' + li + '|' + nextName : '';
   useEffect(() => {
@@ -17,7 +17,7 @@ export function useTrip(active, route, li, nextName, destName) {
     const leg = key.split('|').slice(0, 2).join('|');
     const run = async () => {
       try {
-        const trip = await fetchTrip(route, li, nextName, destName);
+        const trip = await fetchTrip(route, li, (nextIdx != null && placeOf(ST[nextIdx])) || nextName, placeOf(ST[route.to]) || destName);
         let change = null;
         if (trip.change) { try { change = await fetchChange(trip.change); } catch (e) { change = null; } }
         if (!dead) setSt({ key: leg, trip, change, state: 'ok' });
@@ -105,7 +105,7 @@ export default function TripCard({ st, info, route, now, bridge }) {
 
 /* the card plus its background work: live polling, ticking clock, lock screen notification, hand-over to the train marker */
 export function TripLive({ info, route, onData }) {
-  const st = useTrip(true, route, info.li, info.nextName, ST[route.to].name);
+  const st = useTrip(true, route, info.li, info.nextName, ST[route.to].name, info.nextIdx);
   const now = useNow(1000);
   useEffect(() => { onData && onData(st, info.li); }, [st, info.li]); // eslint-disable-line
   useEffect(() => () => tripNotifyEnd(), []);

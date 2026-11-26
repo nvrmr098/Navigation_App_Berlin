@@ -142,25 +142,50 @@ export async function disruptions() {
 }
 
 
-/* whole journeys between two stations (used for alternatives and step-free routes) */
+/* a place for a journey request: a name, or { id } (a VBB stop id), or { name, lat, lng } */
+async function placeId(x) {
+  if (!x) throw new Error('no place');
+  if (typeof x === 'string') return stationId(x);
+  if (x.id) return x.id;
+  return stationId(x.name, x.lat != null ? { lat: x.lat, lng: x.lng } : undefined);
+}
+const posOf = (x) => (x && x.location && x.location.latitude != null ? { lat: x.location.latitude, lng: x.location.longitude } : x && x.latitude != null ? { lat: x.latitude, lng: x.longitude } : null);
+export const MODE_OF = { suburban: 'S', subway: 'U', tram: 'tram', bus: 'bus', ferry: 'ferry', express: 'RE', regional: 'RE' };
+
+/* the stop closest to a position (used to build a new route from where you are) */
+export async function nearbyStop(lat, lng) {
+  const d = await getJson('/locations/nearby?latitude=' + lat + '&longitude=' + lng + '&results=3&distance=800&stops=true&poi=false&language=' + getLang(), 60000);
+  const s = (Array.isArray(d) ? d : []).find((x) => x && x.id && x.type === 'stop');
+  if (!s) throw new Error('no stop');
+  return { id: s.id, name: cleanName(s.name), lat: s.location && s.location.latitude, lng: s.location && s.location.longitude };
+}
+
+/* whole journeys between two places (alternatives, step-free routes, faster combinations with bus, tram and regional trains).
+ * o: { results, stepFree, when (departure), arrive (arrival), stopovers, products: 'rail' for S and U only } */
 export async function journeys(fromName, toName, o) {
-  const [a, b] = await Promise.all([stationId(fromName), stationId(toName)]);
-  let q = '/journeys?from=' + a + '&to=' + b + '&results=' + ((o && o.results) || 4) + '&stopovers=false&remarks=true&language=' + getLang();
+  const [a, b] = await Promise.all([placeId(fromName), placeId(toName)]);
+  let q = '/journeys?from=' + a + '&to=' + b + '&results=' + ((o && o.results) || 4) + '&stopovers=' + (o && o.stopovers ? 'true' : 'false') + '&remarks=true&language=' + getLang();
   if (o && o.stepFree) q += '&accessibility=complete';
-  if (o && o.when) q += '&departure=' + encodeURIComponent(new Date(o.when).toISOString());
+  if (o && o.products === 'rail') q += '&' + PRODUCTS;
+  if (o && o.arrive) q += '&arrival=' + encodeURIComponent(new Date(o.arrive).toISOString());
+  else if (o && o.when) q += '&departure=' + encodeURIComponent(new Date(o.when).toISOString());
   const d = await getJson(q, 30000);
   return ((d && d.journeys) || []).map((j) => {
-    const legs = (j.legs || []).map((l) => ({
-      walk: !!l.walking, line: l.line ? String(l.line.name || '').replace(/\s+/g, '') : '', product: l.line && l.line.product,
-      from: cleanName(l.origin && l.origin.name), to: cleanName(l.destination && l.destination.name),
-      dep: Date.parse(l.departure || l.plannedDeparture || ''), arr: Date.parse(l.arrival || l.plannedArrival || ''),
-      delay: typeof l.departureDelay === 'number' ? Math.round(l.departureDelay / 60) : 0, cancelled: !!l.cancelled,
-      dist: l.distance || 0, dir: cleanName(l.direction || ''),
-      arrDelay: typeof l.arrivalDelay === 'number' ? Math.round(l.arrivalDelay / 60) : 0,
-      depPlatform: l.departurePlatform || l.plannedDeparturePlatform || '', arrPlatform: l.arrivalPlatform || l.plannedArrivalPlatform || '',
-      planArr: Date.parse(l.plannedArrival || l.arrival || ''), planDep: Date.parse(l.plannedDeparture || l.departure || ''),
-      load: l.loadFactor || '',
-    }));
+    const legs = (j.legs || []).map((l) => {
+      const so = (l.stopovers || []).filter((x) => x && x.stop && !x.cancelled && posOf(x.stop)).map((x) => ({ id: x.stop.id || '', name: cleanName(x.stop.name), ...posOf(x.stop), arr: Date.parse(x.arrival || x.plannedArrival || ''), dep: Date.parse(x.departure || x.plannedDeparture || '') }));
+      return {
+        walk: !!l.walking, line: l.line ? String(l.line.name || '').replace(/\s+/g, '') : '', product: l.line && l.line.product, mode: l.line ? MODE_OF[l.line.product] || 'bus' : '',
+        from: cleanName(l.origin && l.origin.name), to: cleanName(l.destination && l.destination.name),
+        fromId: (l.origin && l.origin.id) || '', toId: (l.destination && l.destination.id) || '', fromAt: posOf(l.origin), toAt: posOf(l.destination), stopovers: so,
+        dep: Date.parse(l.departure || l.plannedDeparture || ''), arr: Date.parse(l.arrival || l.plannedArrival || ''),
+        delay: typeof l.departureDelay === 'number' ? Math.round(l.departureDelay / 60) : 0, cancelled: !!l.cancelled,
+        dist: l.distance || 0, dir: cleanName(l.direction || ''),
+        arrDelay: typeof l.arrivalDelay === 'number' ? Math.round(l.arrivalDelay / 60) : 0,
+        depPlatform: l.departurePlatform || l.plannedDeparturePlatform || '', arrPlatform: l.arrivalPlatform || l.plannedArrivalPlatform || '',
+        planArr: Date.parse(l.plannedArrival || l.arrival || ''), planDep: Date.parse(l.plannedDeparture || l.departure || ''),
+        load: l.loadFactor || '',
+      };
+    });
     const lifts = (j.remarks || []).map((r) => strip(r.summary || r.text || '')).filter((t) => /aufzug|fahrstuhl|elevator|lift\b|rolltreppe|escalator/i.test(t));
     const warn = (j.remarks || []).some((r) => r.type === 'warning' || r.type === 'status' && /stör|ausfall|sperr|disrupt|cancel|closure/i.test(r.summary || r.text || '')) || legs.some((l) => l.cancelled);
     return { legs, dep: legs.length ? legs[0].dep : 0, arr: legs.length ? legs[legs.length - 1].arr : 0, warn, lifts: lifts.slice(0, 3) };

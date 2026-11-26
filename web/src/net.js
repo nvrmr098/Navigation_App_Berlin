@@ -6,6 +6,14 @@ export const R = createRouter(NET);
 export const ST = R.ST;
 export const INFO = R.INFO;
 
+/* colour and kind of any line name, also for tram, bus and regional lines that are not in the S/U data */
+export function lineInfo(line, product) {
+  if (INFO[line]) return INFO[line];
+  const byName = /^(M?\d|RE|RB)/.test(line) ? (/^R/.test(line) ? '#d6001c' : /^M?\d{1,2}$/.test(line) ? '#c8102e' : '#a5027d') : '';
+  const byProd = product === 'tram' ? '#c8102e' : product === 'bus' ? '#a5027d' : product === 'regional' || product === 'express' ? '#d6001c' : product === 'ferry' ? '#0b7aa3' : '';
+  return { name: line, c: byName || byProd || '#6b7280', p: 'o' };
+}
+
 // unique edges, with the lines that share them (used for parallel bundles on the map)
 const edgeMap = {};
 Object.keys(NET.lines).forEach((l) => {

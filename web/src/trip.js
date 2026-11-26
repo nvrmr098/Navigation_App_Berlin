@@ -6,6 +6,9 @@ const MIN_TRANSFER = 60000; // at least one minute to change trains
 
 const transit = (j) => j.legs.filter((l) => !l.walk && l.line);
 
+/* how a stop of the route is handed to the journey search: stops from live data by their VBB id, our own stations by name */
+export const placeOf = (st) => (!st ? null : st.virt ? (st.vid ? { id: st.vid } : { name: st.name, lat: st.lat, lng: st.lng }) : st.name);
+
 /* the journey from the next stop to the destination that uses the lines of the rest of our route */
 export async function fetchTrip(route, li, nextName, destName) {
   const want = route.legs.slice(li).map((l) => l.line);
@@ -28,7 +31,7 @@ export async function fetchTrip(route, li, nextName, destName) {
   if (second && first) {
     const walkLeg = j.legs.find((l) => l.walk && l.dep >= first.arr - 1000 && l.arr <= second.dep + 1000);
     out.change = {
-      station: first.to, line: second.line, dir: second.dir, platform: second.depPlatform, arrPlatform: first.arrPlatform,
+      station: first.to, at: first.toAt, line: second.line, dir: second.dir, platform: second.depPlatform, arrPlatform: first.arrPlatform,
       arr: first.arr, dep: second.dep, planDep: second.planDep, delay: second.delay, cancelled: second.cancelled,
       margin: second.dep - first.arr, walkMin: walkLeg ? Math.max(1, Math.round((walkLeg.arr - walkLeg.dep) / 60000)) : 0,
       load: second.load,
@@ -39,7 +42,7 @@ export async function fetchTrip(route, li, nextName, destName) {
 
 /* trains after the change: the one you can reach and the one after it, plus a check of the connection */
 export async function fetchChange(change) {
-  const rows = await board(change.station, 'departures', { results: 16, duration: 60 });
+  const rows = await board(change.station, 'departures', { results: 30, duration: 60, all: true, at: change.at || undefined });
   const same = pickTrains(rows, change.line, change.dir).filter((x) => !x.cancelled);
   const reach = same.filter((x) => x.when >= change.arr + MIN_TRANSFER);
   const mine = reach[0] || null, then = reach[1] || null;

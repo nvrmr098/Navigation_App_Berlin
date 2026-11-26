@@ -110,4 +110,5 @@ button.plc:disabled{opacity:.5}
 .wxnote>div{display:flex;align-items:center;gap:8px}.wxnote svg{width:18px;height:18px;flex:none;color:var(--accent)}
 .seg3.scrollx button{white-space:nowrap;flex:none}
 
-#navctl .btn{white-space:nowrap;padding-left:14px;padding-right:14px}
+#navctl .btn{white-space:nowrap;padding-left:12px;padding-right:12px;min-width:0;gap:6px}
+@media (max-width:420px){#navctl{gap:6px}#navctl .btn{font-size:14px;padding-left:9px;padding-right:9px}#navctl .btn.sq2{flex:0 0 50px;padding:0}}

@@ -17,6 +17,9 @@ import { Vehicle2D } from './vehicle2d.js';
 import { vehicleKind } from './avatar3d.js';
 import { setLang, tr, cnt, fmtTime } from './i18n.js';
 import { TripLive } from './trip-ui.jsx';
+import { journeys, nearbyStop } from './live.js';
+import { journeyToRoute } from './journey-route.js';
+import { placeOf } from './trip.js';
 
 const loadStore = () => {
   const base = { theme: 'auto', skin: 'classic', lang: 'en', home: '', work: '', homeAt: null, workAt: null, fav: [], rec: [], lbl: true, step: false, real3d: true, awake: true, haptics: true };
@@ -28,6 +31,8 @@ const loadStore = () => {
 };
 const fmtDist = (km) => (km < 1 ? Math.round(km * 1000 / 10) * 10 + ' m' : km.toFixed(1) + ' km');
 const PAGES = ['pMap', 'pNav', 'pNear', 'pMore'];
+const mixKeyOf = (nav, when) => (nav.from && nav.to && when.mode !== 'arr' ? nav.from.i + '>' + nav.to.i + '|' + when.mode + '|' + (when.mode === 'now' ? '' : when.ts) : '');
+const MODE_WORD = { RE: 'modeRE', bus: 'modeBus', tram: 'modeTram', ferry: 'modeFerry' };
 
 export default function App() {
   const [store, setStore] = useState(loadStore);
@@ -67,6 +72,8 @@ export default function App() {
   const [toast, setToast] = useState('');
   const [entInfo, setEntInfo] = useState(null);
   const [calibOn, setCalibOn] = useState(false);
+  const [tilt, setTilt] = useState(false); // street map in navigation: false = flat 2D, true = tilted 3D
+  const [mix, setMix] = useState(null); // a faster route that combines S/U with bus, tram or regional trains
   const fromPageRef = useRef('pMap'), vehRef = useRef(null), histRef = useRef({ pushed: 0, ignore: 0 }), closeTopRef = useRef(null), mapHost = useRef(null);
 
   const cvRef = useRef(null), glRef = useRef(null), realDiv = useRef(null), eng = useRef(null), scene = useRef(null), real = useRef(null), trk = useRef(null);
@@ -78,6 +85,28 @@ export default function App() {
   storeRef.current = store; navRef.current = nav;
 
   const say = useCallback((t) => { setToast(t); clearTimeout(toastT.current); toastT.current = setTimeout(() => setToast(''), 2400); }, []);
+
+  // routes as shown: a clearly faster combination with bus, tram or regional trains goes first (the S/U-only routes stay below it)
+  const mixKey = mixKeyOf(nav, when);
+  const navV = mix && mix.key === mixKey ? { ...nav, routes: [mix.route, ...nav.routes] } : nav;
+  useEffect(() => {
+    setMix(null); if (!mixKey) return undefined;
+    let dead = false; const a = nav.from.name, b = nav.to.name;
+    (async () => {
+      try {
+        const o = { results: 5, stopovers: true }; o.when = when.mode === 'dep' ? when.ts : Date.now();
+        const [all, rail] = await Promise.all([journeys(a, b, o), journeys(a, b, { when: o.when, results: 3, products: 'rail' })]);
+        const live = (j) => !j.legs.some((l) => l.cancelled);
+        const cands = all.filter(live).map((j) => ({ j, c: journeyToRoute(j) })).filter((x) => x.c.route && x.c.route.generic && x.c.route.modes.length).sort((x, y) => x.j.arr - y.j.arr);
+        if (!cands.length) return;
+        const railArr = rail.filter(live).map((j) => j.arr).sort((x, y) => x - y)[0] || (Date.now() + ((R.routes(nav.from.i, nav.to.i)[0] || { minutes: 999 }).minutes * 60000));
+        const save = Math.round((railArr - cands[0].j.arr) / 60000);
+        if (save >= 2 && !dead) { setMix({ key: mixKey, route: { ...cands[0].c.route, key: 'faster', save } }); setNav((n) => (n.sel > 0 ? { ...n, sel: n.sel + 1 } : n)); }
+      } catch (e) { /* no live answer: the S/U routes stay as they are */ }
+    })();
+    return () => { dead = true; };
+    // eslint-disable-next-line
+  }, [mixKey]);
 
   // ---------- persistence and theme ----------
   useEffect(() => { try { localStorage.setItem('bl1', JSON.stringify(store)); } catch (e) { /* ignore */ } if (eng.current) { eng.current.lbl = !!store.lbl; eng.current.schedule(); } }, [store]);
@@ -117,7 +146,8 @@ export default function App() {
       if (L.on && L.source === 'gps' && ov.current) {
         const sn = snapToRoute(ov.current, f.lat, f.lng, L.phase === 'live' ? L.gpsIdx : null);
         L.gpsIdx = sn.idx; L.offKm = sn.km;
-        if (sn.km > 0.35) { if (!L.offSince) L.offSince = Date.now(); } else L.offSince = 0;
+        const rt = ov.current.route, tol = (rt.legs[clamp(R.legAt(ov.current.path, Math.min(sn.idx, ov.current.path.pts.length - 1.001)), 0, rt.legs.length - 1)] || {}).tol || 0.35;
+        if (sn.km > tol) { if (!L.offSince) L.offSince = Date.now(); } else L.offSince = 0;
       }
     }, (s) => setGpsStatus(s));
     return () => { window.removeEventListener('resize', onResize); e.destroy(); live.current.on = false; trk.current.stop(); if (real.current) real.current.destroy(); };
@@ -177,10 +207,11 @@ export default function App() {
   const showOnMap = (r) => {
     fromPageRef.current = page; // closing the preview goes back to where it was opened
     if (!r.alt) remember(r); const o = makeOverlay(r); ov.current = o; eng.current.overlay = o; eng.current.navMode = false; setFilter('both');
-    live.current.on = false; live.current.phase = 'idle'; resetView(); setPaused(false); setFinished(false);
+    live.current.on = false; live.current.phase = 'idle'; setPaused(false); setFinished(false);
+    if (r.generic) { destroyReal(); viewRef.current = 'real'; setView('real'); setTilt(false); } else resetView();
     setPage('pMap'); setSelected(-1); setMode('show');
     pushInfo({ lines: r.legs.map((l) => l.line), title: r.minutes + ' min', sub: ST[r.from].name + ' ' + tr('to') + ' ' + ST[r.to].name, pct: 0, hud: '', intro: null, off: null });
-    setTimeout(() => { eng.current.resize(); eng.current.fitPoints(o.path.pts, 130, 230); }, 30);
+    setTimeout(() => { eng.current.resize(); eng.current.fitPoints(o.path.pts, 130, 230); if (r.generic) openReal({ fit: { top: 150, bottom: 260 } }); }, 30);
   };
 
   const ensureVehicle = () => { if (!vehRef.current && mapHost.current) vehRef.current = new Vehicle2D(mapHost.current, 120); };
@@ -246,10 +277,17 @@ export default function App() {
       if (L.follow && viewRef.current === '2d') {
         const m = pointAt(o, p), v = e.view, tz = e.z0 * 5.5; v.z += (tz - v.z) * 0.08; v.cx += (m.x - v.cx) * 0.12; v.cy += (m.y - v.cy) * 0.12;
       }
-      const left = seg.b - Math.floor(p + 0.03), nextSt = ST[o.path.pts[Math.min(last, Math.floor(p + 0.03) + 1)].st], endSt = ST[o.path.pts[seg.b].st];
+      const at0 = Math.floor(p + 0.03), nextPt = o.path.pts[Math.min(last, at0 + 1)], nextSt = ST[nextPt.st], endSt = ST[o.path.pts[seg.b].st];
+      const walking = !!(lg.walkIn && p < seg.a + 0.97), left = walking ? lg.stops : seg.b - at0;
       const fin = p >= last - 0.03, lastLeg = li === n - 1, nl = r.legs[li + 1];
       let title, sub, hud, off = null;
-      if (fin) {
+      if (walking && !fin) {
+        // between two stops: walk to the next boarding stop
+        const dKm = L.fix && gps ? distKm(L.fix.lat, L.fix.lng, nextSt.lat, nextSt.lng) : lg.walkIn.m / 1000, dW = fmtDist(dKm);
+        const near = dKm < 0.03;
+        title = tr(near ? 'atStop' : 'walkToStop', { name: nextSt.name }); sub = tr(near ? 'atStopSub' : 'walkToStopSub', { d: dW, line: lg.line, toward: lg.toward, t: lg.dep ? ', ' + fmtTime(lg.dep) : '' }); hud = tr('nextHud', { next: nextSt.name });
+        L.alerted = '';
+      } else if (fin) {
         title = tr('arrived'); sub = ST[r.to].name; hud = ST[r.to].name;
         if (!L.done) { L.done = true; if (storeRef.current.haptics) haptic([300, 120, 300]); setFinished(true); }
       } else {
@@ -257,6 +295,7 @@ export default function App() {
         const dNext = L.fix && gps ? ' · ' + fmtDist(distKm(L.fix.lat, L.fix.lng, nextSt.lat, nextSt.lng)) : '';
         title = lg.line + ' ' + tr('towards') + ' ' + lg.toward;
         sub = left <= 1 ? (lastLeg ? tr('getOff', { end: endSt.name }) : tr('getOffChange', { end: endSt.name, line: nl.line, toward: nl.toward })) : tr('nextLine', { next: nextSt.name, d: dNext, n: left, end: endSt.name });
+        if (left <= 1 && (lg.mode === 'bus' || lg.mode === 'tram')) sub += '. ' + tr('pressStop');
         hud = tr('nextHud', { next: nextSt.name });
         if (left <= 1 && L.alerted !== 'leg' + li) { L.alerted = 'leg' + li; if (storeRef.current.haptics) haptic([180, 90, 180]); if (gps) beep(); }
         if (left > 1 && L.alerted === 'leg' + li) L.alerted = '';
@@ -269,8 +308,9 @@ export default function App() {
         }
       } else L.farSince = 0;
       if (gps && L.fix && L.offSince && Date.now() - L.offSince > 5000 && !fin) off = { atStart: L.gpsIdx < 0.4, m: Math.round(L.offKm * 1000), name: ST[o.path.pts[0].st].name };
-      pushInfo({ lines: [lg.line], title, sub, pct: Math.round(100 * p / last), hud, intro: null, off, est, dir: gps ? L.dir || null : null, alert: !fin && left <= 1 ? endSt.name : null, li, left, nextName: nextSt.name, endName: endSt.name, fin });
-      if (L.leg !== li) { L.leg = li; if (real.current) real.current.setLeg(o, li); }
+      pushInfo({ lines: [lg.line], title, sub, pct: Math.round(100 * p / last), hud, intro: null, off, est, dir: gps ? L.dir || null : null, alert: !fin && !walking && left <= 1 ? endSt.name : null, li, left, nextName: nextSt.name, nextIdx: nextPt.st, endName: endSt.name, fin, walking });
+      const legKey = li + (walking ? 'w' : '');
+      if (L.legKey !== legKey) { L.legKey = legKey; L.leg = li; if (real.current) real.current.setLeg(o, li, walking); }
       if (viewRef.current === 'generic' && scene.current) scene.current.render(o, p);
     }
     if ((viewRef.current === 'real' || loadingRef.current) && real.current) { real.current.setPosition(o, L.p, now); if (gps) real.current.setUser(L.fix); }
@@ -286,13 +326,38 @@ export default function App() {
   };
   const startNav = (r, src) => {
     if (!r.alt) remember(r); const o = makeOverlay(r); o.reveal = r.legs.map(() => 0); ov.current = o; eng.current.overlay = o; eng.current.navMode = true;
-    const L = live.current; Object.assign(L, { on: true, phase: 'intro', source: src, p: 0, target: 0, play: true, follow: true, t0: performance.now(), last: 0, adv: null, gpsIdx: 0, offKm: 0, offSince: 0, lastFixAt: 0, alerted: '', leg: -1, done: false });
-    ensureVehicle(); setSource(src); setFilter('both'); resetView(); setPaused(false); setFinished(false); setPage('pMap'); setSelected(-1); setMode('intro'); setModal(null);
+    const gen = !!r.generic;
+    const L = live.current; Object.assign(L, { on: true, phase: gen ? 'live' : 'intro', source: src, p: 0, target: 0, play: true, follow: true, t0: performance.now(), last: 0, adv: null, gpsIdx: 0, offKm: 0, offSince: 0, lastFixAt: 0, alerted: '', leg: -1, legKey: '', done: false });
+    setSource(src); setFilter('both'); setPaused(false); setFinished(false); setPage('pMap'); setSelected(-1); setModal(null);
+    if (gen) {
+      // no intro animation on the street map: go straight to live guidance
+      dropVehicle(); if (!(real.current && real.current.route === r)) destroyReal();
+      viewRef.current = 'real'; setView('real'); setTilt(false); setMode('live'); o.marker = 0;
+      if (real.current) { real.current.follow = true; real.current.setTilt(false); }
+    } else { ensureVehicle(); resetView(); setMode('intro'); }
     lastInfo.current = '';
     if (src === 'gps') trk.current.start();
     if (storeRef.current.awake) keepAwake(true);
-    setTimeout(() => { eng.current.resize(); eng.current.fitPoints(o.path.pts, 150, 190); }, 30);
+    setTimeout(() => { eng.current.resize(); eng.current.fitPoints(o.path.pts, 150, 190); if (gen) openReal({}); }, 30);
     requestAnimationFrame(tick);
+  };
+
+  /* street map as the base view (flat 2D, tilt for 3D) for routes that are not only S and U */
+  const openReal = async (opts) => {
+    const o = ov.current; if (!o) return;
+    if (real.current && real.current.route === o.route) return;
+    destroyReal(); loadingRef.current = true; setLoading3d(true);
+    const { RealMap3D } = await import('./realmap.js');
+    const { mockLiberty } = await import('./mapstyle.js');
+    if (ov.current !== o) { if (!real.current) { loadingRef.current = false; setLoading3d(false); } return; }
+    const g0 = geoAt(o, 0);
+    const rm = new RealMap3D(realDiv.current, {
+      dark: document.body.classList.contains('dark'), flat: !(opts && opts.tilt), fit: opts && opts.fit, styleOverride: /mock=1/.test(location.hash) ? mockLiberty(g0.lng, g0.lat) : undefined,
+      onReady: () => { if (real.current !== rm) return; loadingRef.current = false; setLoading3d(false); viewRef.current = 'real'; setView('real'); rm.resize(); rm.setLeg(o, Math.max(0, live.current.leg)); if (live.current.on) rm.follow = true; },
+      onFail: () => { if (real.current !== rm) return; rm.destroy(); real.current = null; loadingRef.current = false; setLoading3d(false); viewRef.current = '2d'; setView('2d'); say(tr('mapFail')); if (eng.current) eng.current.fitPoints(o.path.pts, 150, 190); },
+      onUserMove: () => { live.current.follow = false; },
+    });
+    rm.route = o.route; real.current = rm; rm.init(o);
   };
 
   const openGeneric = async () => {
@@ -302,6 +367,7 @@ export default function App() {
     viewRef.current = 'generic'; setView('generic');
   };
   const toggle3d = async (opts) => {
+    if (ov.current && ov.current.route.generic) { const t = !tilt; setTilt(t); if (real.current) real.current.setTilt(t); return; }
     if (viewRef.current !== '2d' || loadingRef.current) { resetView(); live.current.follow = true; eng.current.schedule(); return; }
     const wantReal = storeRef.current.real3d && navigator.onLine !== false;
     if (!wantReal) { if (!storeRef.current.real3d) say(tr('simple3dOff')); else say(tr('simple3dOffline')); await openGeneric(); return; }
@@ -318,6 +384,12 @@ export default function App() {
     real.current = rm; rm.init(o);
   };
 
+  const startWalkOnly = async (w) => {
+    let from = w.from;
+    try { const f = applyPos(trk.current.last || await getPositionOnce()); from = { lat: f.lat, lng: f.lng }; } catch (e) { /* use the start of the journey */ }
+    setPage('pMap'); setWalk({ from, to: w.to, title: w.to.name || tr('walkTo2s', { place: '' }) });
+  };
+
   const onPlay = () => {
     const L = live.current;
     if (finished && L.source === 'demo') { L.p = 0; L.target = 0; L.play = true; L.follow = true; setPaused(false); setFinished(false); return; }
@@ -325,8 +397,18 @@ export default function App() {
   };
   const onNext = () => { const L = live.current, last = ov.current.path.pts.length - 1; L.target = Math.min(last, Math.floor(L.p + 0.0001) + 1); L.follow = true; };
   const onRecenter = () => { live.current.follow = true; if (real.current) real.current.recenter(); };
-  const reroute = () => {
+  const reroute = async () => {
     const L = live.current, f = L.fix, dest = ov.current.route.to; if (!f) return;
+    if (ov.current.route.generic) {
+      try {
+        const a = await nearbyStop(f.lat, f.lng), d = placeOf(ST[dest]) || ST[dest].name;
+        const list = await journeys(a, d, { results: 3, stopovers: true, when: Date.now() });
+        const hit = list.map((j) => journeyToRoute(j)).find((c) => c.route);
+        if (!hit) { say(tr('noRouteHere')); return; }
+        L.on = false; startNav(hit.route, 'gps'); say(tr('newRouteFrom') + ' ' + a.name);
+      } catch (e) { say(tr('noRouteHere')); }
+      return;
+    }
     const n = nearestStation(f.lat, f.lng).st;
     if (n.i === dest) { say(tr('alreadyThere')); return; }
     const rs = R.routes(n.i, dest); if (!rs.length) { say(tr('noRouteHere')); return; }
@@ -367,6 +449,7 @@ export default function App() {
 
   // ---------- render ----------
   const navActive = mode !== 'idle';
+  const gen = !!(navActive && ov.current && ov.current.route.generic); // the route uses bus, tram or regional trains: street map instead of the schematic map
   const sel = selected >= 0 ? ST[selected] : null;
   const isFav = !!(sel && store.fav.indexOf(sel.name) >= 0);
   const gpsNav = mode === 'live' || mode === 'intro';
@@ -384,7 +467,7 @@ export default function App() {
     if (it.type === 'start') {
       closeModal();
       if (ov.current && mode === 'show') { beginGps(ov.current.route); return; }
-      const r = nav.routes && nav.routes[nav.sel || 0]; if (r) showOnMap(r); else say(tr('asNoRoute'));
+      const r = navV.routes && navV.routes[navV.sel || 0]; if (r) showOnMap(r); else say(tr('asNoRoute'));
     }
   };
   const openExits = (name, lat, lng, dest) => { setEntInfo({ name, lat, lng, dest: dest || null }); setModal('ent'); };
@@ -405,7 +488,7 @@ export default function App() {
     if (!silent) say(tr('shareLiveOff'));
   };
   const startShare = async () => {
-    const r = nav.routes && nav.routes[nav.sel || 0];
+    const r = navV.routes && navV.routes[navV.sel || 0];
     try {
       const j = await (await fetch(SHARE_API + '/api/trip', { method: 'POST' })).json(); if (!j.id) throw new Error('x');
       const sh = { id: j.id, key: j.key, url: SHARE_API + '/t/' + j.id, label: r ? ST[r.from].name + ' > ' + ST[r.to].name : 'Bearline', last: null };
@@ -417,7 +500,7 @@ export default function App() {
   };
   const shareTrip = () => {
     if (SHARE_API) { if (shareRef.current) { const u = shareRef.current.url; if (navigator.share) navigator.share({ text: tr('shareLiveText') + ' ' + u, url: u }).catch(() => {}); return; } startShare(); return; }
-    const r = nav.routes && nav.routes[nav.sel || 0], f = live.current.fix || trk.current.last;
+    const r = navV.routes && navV.routes[navV.sel || 0], f = live.current.fix || trk.current.last;
     const base = 'https://nvrmr098.github.io/Navigation_App_Berlin/';
     let t = 'Bearline';
     if (r) t += ': ' + ST[r.from].name + ' ' + tr('to') + ' ' + ST[r.to].name + ', ' + r.minutes + ' ' + tr('min') + '.\n' + base + '#nosplash=1&from=' + encodeURIComponent(ST[r.from].name) + '&to=' + encodeURIComponent(ST[r.to].name);
@@ -464,15 +547,16 @@ export default function App() {
     if (page !== 'pMap') { setPage('pMap'); return; }
     if (navActive) endNav();
   };
+  const [popTick, setPopTick] = useState(0); // a back press can close a layer and open another one at the same depth: the history needs a fresh entry then
   useEffect(() => {
     const h = histRef.current;
     try {
       if (depth > h.pushed) { for (let i = h.pushed; i < depth; i++) history.pushState({ bl: i + 1 }, ''); h.pushed = depth; }
       else if (depth < h.pushed) { const n = h.pushed - depth; h.ignore += n; h.pushed = depth; history.go(-n); }
     } catch (e) { /* history not available */ }
-  }, [depth]);
+  }, [depth, popTick]);
   useEffect(() => {
-    const onPop = () => { const h = histRef.current; if (h.ignore > 0) { h.ignore--; return; } if (h.pushed > 0) h.pushed--; if (closeTopRef.current) closeTopRef.current(); };
+    const onPop = () => { const h = histRef.current; if (h.ignore > 0) { h.ignore--; return; } if (h.pushed > 0) h.pushed--; if (closeTopRef.current) closeTopRef.current(); setPopTick((t) => t + 1); };
     window.addEventListener('popstate', onPop); return () => window.removeEventListener('popstate', onPop);
   }, []);
 
@@ -568,19 +652,19 @@ export default function App() {
         )}
 
         <div id="fabs" hidden={net !== 'rail'} style={sel ? { bottom: 'calc(var(--dock) + 296px)' } : navActive ? { bottom: 'calc(var(--dock) + 100px)' } : undefined}>
-          {mode === 'live' && <button className="fab glass lg" aria-label="2D / 3D" onClick={() => toggle3d()}><Ico n={view === '2d' ? 'cube' : 'flat'} />{view === '2d' ? '3D' : '2D'}</button>}
+          {mode === 'live' && <button className="fab glass lg" aria-label="2D / 3D" onClick={() => toggle3d()}><Ico n={(gen ? !tilt : view === '2d') ? 'cube' : 'flat'} />{(gen ? !tilt : view === '2d') ? '3D' : '2D'}</button>}
           {!navActive && <button className={'fab glass' + (locateOn ? ' on' : '')} aria-label={tr('myLocation')} onClick={toggleLocate}><Ico n="locate" /></button>}
-          {view === '2d' && <button className="fab glass" aria-label="+" onClick={() => { live.current.follow = false; eng.current.zoomBy(1.6); }}>+</button>}
-          {view === '2d' && <button className="fab glass" aria-label="-" onClick={() => { live.current.follow = false; eng.current.zoomBy(1 / 1.6); }}>&minus;</button>}
-          {view === '2d' && <button className="fab glass" aria-label={tr('wholeNetwork')} onClick={() => { live.current.follow = false; if (ov.current) eng.current.fitPoints(ov.current.path.pts, 150, 190); else eng.current.fitAll(); }}><Ico n="map" /></button>}
+          {(view === '2d' || (gen && view === 'real')) && <button className="fab glass" aria-label="+" onClick={() => { if (gen && real.current) { real.current.zoomBy(1); return; } live.current.follow = false; eng.current.zoomBy(1.6); }}>+</button>}
+          {(view === '2d' || (gen && view === 'real')) && <button className="fab glass" aria-label="-" onClick={() => { if (gen && real.current) { real.current.zoomBy(-1); return; } live.current.follow = false; eng.current.zoomBy(1 / 1.6); }}>&minus;</button>}
+          {(view === '2d' || (gen && view === 'real')) && <button className="fab glass" aria-label={tr('wholeNetwork')} onClick={() => { live.current.follow = false; if (gen && real.current) { real.current.follow = false; real.current.fit(ov.current, { top: 150, bottom: 260 }); return; } if (ov.current) eng.current.fitPoints(ov.current.path.pts, 150, 190); else eng.current.fitAll(); }}><Ico n="map" /></button>}
         </div>
 
         {mode === 'intro' && info.intro && (
           <div id="intro"><span className="glass">{info.intro.text ? info.intro.text : <>{info.intro.first ? tr('take') : tr('then')} <Badge line={info.intro.line} big /> {tr('towards')} {info.intro.toward}</>}</span></div>
         )}
-        {mode === 'live' && !info.off && <div id="hud"><span>{info.hud}</span></div>}
+        {mode === 'live' && !info.off && !finished && <div id="hud"><span>{info.hud}</span></div>}
 
-        {mode === 'live' && finished && source === 'gps' && (
+        {mode === 'live' && finished && source === 'gps' && !(gen && /^(bus|tram|ferry)$/.test(ov.current.route.legs[ov.current.route.legs.length - 1].mode)) && (
           <button className="btn alt endexit" onClick={() => { const sB = ST[ov.current.route.to]; openExits(sB.name, sB.lat, sB.lng, nav.toPlace || null); }}><Ico n="door" />{tr('entTitle')}</button>
         )}
         {mode === 'live' && finished && source === 'gps' && nav.toPlace && (
@@ -619,10 +703,10 @@ export default function App() {
         </div>
       </section>
 
-      <NavPage on={page === 'pNav'} nav={nav} fq={fq} tq={tq} store={store} when={when}
+      <NavPage on={page === 'pNav'} nav={navV} fq={fq} tq={tq} store={store} when={when}
         setFq={(v) => { setFq(v); if (nav.from) clearRoutes('from'); }} setTq={(v) => { setTq(v); if (nav.to) clearRoutes('to'); }}
         onPickFrom={(s) => { if (s.place) { pickPlace('from', s); return; } setFrom(s); if (!navRef.current.to) setTimeout(() => document.querySelectorAll('#pNav .fld input')[1]?.focus(), 60); }} onPickTo={(s) => (s.place ? pickPlace('to', s) : setTo(s))}
-        onSwap={swap} onSelect={(i) => setNav((n) => ({ ...n, sel: i }))} onShow={showOnMap} onStart={showOnMap} onShare={shareRoute} onBack={() => setPage('pMap')} onReset={resetNav} onSaveAs={saveAs} onSaveCommute={saveCommute} onModal={setModal}
+        onSwap={swap} onSelect={(i) => setNav((n) => ({ ...n, sel: i }))} onShow={showOnMap} onStart={showOnMap} onWalk={startWalkOnly} onShare={shareRoute} onBack={() => setPage('pMap')} onReset={resetNav} onSaveAs={saveAs} onSaveCommute={saveCommute} onModal={setModal}
         onTime={() => setModal('time')} onBoard={openBoard} onPlaces={() => setModal('places')} onSetDest={setDest} onPickPlace={(pl) => pickPlace('to', pl)}
         onChipStation={(name) => { const s = R.byName(name); if (!nav.from) setFrom(s); else setTo(s); }}
         onChipTrip={(r) => { const a = R.byName(r[0]), b = R.byName(r[1]); setNav({ from: a, to: b, routes: R.routes(a.i, b.i), sel: 0 }); setFq(a.name); setTq(b.name); }}
@@ -649,7 +733,7 @@ export default function App() {
             ? <EntrancesModal name={entInfo.name} lat={entInfo.lat} lng={entInfo.lng} dest={entInfo.dest} onWalk={(en) => { const f = live.current.fix || trk.current.last; if (!f) { say(tr('gpsFail')); return; } closeModal(); setPage('pMap'); setWalk({ from: { lat: f.lat, lng: f.lng }, to: { lat: en.lat, lng: en.lng, name: entInfo.name }, title: entInfo.name }); }} />
             : modal === 'calib'
               ? <CalibModal route={ov.current && ov.current.route} raw={live.current.raw} fix={live.current.fix} onDone={(msg) => { const L = live.current; if (L.raw) { L.fix = applyPos(L.raw); if (ov.current) { const sn = snapToRoute(ov.current, L.fix.lat, L.fix.lng, null); L.gpsIdx = sn.idx; L.offKm = sn.km; L.offSince = 0; } } closeModal(); say(msg); }} />
-              : <ModalContent kind={modal} store={store} setStore={setStore} board={boardName} boardOpts={boardOpts} when={when} say={say} nav={nav} stNames={[nav.from && nav.from.name, nav.to && nav.to.name, nearName].filter((x, i, a) => x && a.indexOf(x) === i)} onAssist={assistGo} onCmd={onCmd}
+              : <ModalContent kind={modal} store={store} setStore={setStore} board={boardName} boardOpts={boardOpts} when={when} say={say} nav={navV} stNames={[nav.from && nav.from.name, nav.to && nav.to.name, nearName].filter((x, i, a) => x && a.indexOf(x) === i)} onAssist={assistGo} onCmd={onCmd}
               onFav={(n, at) => { closeModal(); setPage('pMap'); const s = R.byName(n); if (s) { filterFor(s); selectStation(s.i, true); } else if (at) showPlace({ name: n, lat: at.lat, lng: at.lng }); }}
               onLang={(id) => { setStore((o) => ({ ...o, lang: id })); closeModal(); }}
               onApplyTime={(w) => { setWhen(w); closeModal(); }}

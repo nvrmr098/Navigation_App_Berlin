@@ -14,7 +14,8 @@ import { pickTrains, PROD_GROUPS } from './live.js';
 import { berlinParts, berlinMs, dayOffsetMs, pad } from './time.js';
 import { distKm, getPositionOnce } from './geo.js';
 
-const TAGS = { fastest: 'fastest', fewest: 'fewest' };
+const TAGS = { fastest: 'fastest', fewest: 'fewest', faster: 'fastest' };
+const MODEWORD = { RE: 'modeRE', bus: 'modeBus', tram: 'modeTram', ferry: 'modeFerry' };
 const fmtDist = (km) => (km < 1 ? Math.round(km * 1000 / 10) * 10 + ' m' : km.toFixed(1) + ' km');
 
 /* when: { mode: 'now' | 'dep' | 'arr', ts } -> { dep, arr } in ms for a route of `min` minutes */
@@ -27,6 +28,7 @@ export function planTimes(when, min) {
 export const whenLabel = (w) => (w.mode === 'now' ? tr('leaveNow') : (w.mode === 'dep' ? tr('departAt') : tr('arriveBy')) + ' ' + fmtDay(w.ts) + ' ' + fmtTime(w.ts));
 
 function RouteCard({ fromPlace, toPlace, onModal, r, i, sel, when, onSelect, onShow, onStart, onShare, active }) {
+  const gen = !!r.generic; // bus, tram or regional train in the route: live times come with the journey
   const t = planTimes(when, r.minutes), lg0 = r.legs[0], station = ST[lg0.stations[0]].name;
   // live board for the first station while this card is open
   const q = useMemo(() => {
@@ -34,7 +36,7 @@ function RouteCard({ fromPlace, toPlace, onModal, r, i, sel, when, onSelect, onS
     if (when.mode === 'dep') return { when: when.ts, results: 40, duration: 90 };
     return { results: 40, duration: 90 };
   }, [when.mode, when.ts, t.dep]);
-  const [st, reload] = useBoard(station, 'departures', active && sel, q);
+  const [st, reload] = useBoard(station, 'departures', active && sel && !gen, q);
   const picked = useMemo(() => {
     let list = pickTrains(st.items, lg0.line, lg0.toward);
     if (when.mode === 'arr') list = list.filter((d) => d.when <= t.dep + 60000).slice(-3);
@@ -45,6 +47,7 @@ function RouteCard({ fromPlace, toPlace, onModal, r, i, sel, when, onSelect, onS
   // with a live first train the arrival time follows the real departure
   let dep = t.dep, arr = t.arr;
   if (when.mode !== 'arr' && liveFirst) { dep = liveFirst.when; arr = liveFirst.when + (r.minutes - lg0.waitMin) * 60000; }
+  if (gen && r.dep) { dep = r.dep; arr = r.arr; }
   const sA = ST[lg0.stations[0]], sB = ST[r.legs[r.legs.length - 1].stations[r.legs[r.legs.length - 1].stations.length - 1]];
   const wStart = fromPlace ? Math.round(meters(fromPlace, sA) * 1.25) : 0, wEnd = toPlace ? Math.round(meters(toPlace, sB) * 1.25) : 0;
   if (wEnd) arr += walkMin(wEnd) * 60000;
@@ -53,25 +56,27 @@ function RouteCard({ fromPlace, toPlace, onModal, r, i, sel, when, onSelect, onS
     <div className={'rc glass' + (sel ? ' sel' : '')} onClick={onSelect} style={{ animationDelay: i * 70 + 'ms' }}>
       <div className="hd">
         <span className="tt">{r.minutes}<small>{tr('min')}</small></span><span style={{ flex: 1 }} />
-        <span className={'tg' + (i === 0 ? ' hot' : '')}>{tr(TAGS[r.key])}</span>
+        <span className={'tg' + (i === 0 ? ' hot' : '')}>{r.key === 'faster' ? tr('fasterVia', { m: r.modes.map((m) => tr(MODEWORD[m] || 'modeBus')).join(' + ') }) : tr(TAGS[r.key])}</span>
       </div>
       <div className="meta">
-        {when.mode === 'now' && !liveFirst ? tr('arriveAbout') + ' ' + fmtTime(arr) : tr('leave') + ' ' + fmtTime(dep) + ' · ' + tr('arrive') + ' ' + fmtTime(arr)}
+        {when.mode === 'now' && !liveFirst && !gen ? tr('arriveAbout') + ' ' + fmtTime(arr) : tr('leave') + ' ' + fmtTime(dep) + ' · ' + tr('arrive') + ' ' + fmtTime(arr)}
         {' · '}{r.transfers ? cnt('change', r.transfers) : tr('direct')}
+        {r.key === 'faster' && r.save > 0 && <b className="svd"> · {tr('fasterSave', { n: r.save })}</b>}
       </div>
       <div className="vis">
         {r.legs.map((l, k) => <React.Fragment key={k}>{k > 0 && <span className="ar">&rsaquo;</span>}<Badge line={l.line} big /></React.Fragment>)}
       </div>
       {sel && (
         <>
-          <NextTrains st={{ ...st, items: picked }} line={lg0.line} />
+          {!gen && <NextTrains st={{ ...st, items: picked }} line={lg0.line} />}
           <ul className="steps">
             {wStart > 60 && <li className="walkli" style={{ '--c': '#8a93aa' }}><span className="pin" /><b><Ico n="walk" className="s" />{tr('walkFrom', { m: walkMin(wStart), d: wStart >= 1000 ? (wStart / 1000).toFixed(1) + ' km' : wStart + ' m', place: fromPlace.me ? tr('yourLocation') : fromPlace.name, st: sA.name })}</b></li>}
             {r.legs.map((lg, li) => {
               const a = ST[lg.stations[0]], b = ST[lg.stations[lg.stations.length - 1]];
               return (
                 <React.Fragment key={li}>
-                  <li style={{ '--c': lg.c }}><span className="pin" /><b>{li === 0 ? tr('startAt') : tr('changeAt')} {a.name}</b>
+                  {lg.walkIn && <li className="walkli" style={{ '--c': '#8a93aa' }}><span className="pin" /><b><Ico n="walk" className="s" />{tr('walkBetween', { m: lg.walkIn.min, d: lg.walkIn.m >= 1000 ? (lg.walkIn.m / 1000).toFixed(1) + ' km' : lg.walkIn.m + ' m', st: a.name })}</b></li>}
+                  <li style={{ '--c': lg.c }}><span className="pin" /><b>{li === 0 ? tr('startAt') : tr('changeAt')} {a.name}{gen && lg.dep ? ' · ' + fmtTime(lg.dep) : ''}{gen && lg.platform ? ' · ' + tr('platform') + ' ' + lg.platform : ''}</b>
                     {li > 0 && tips[li] && (tips[li].ride ? <CoachGuide pos={tips[li].ride} toward={r.legs[li - 1].toward} color={r.legs[li - 1].c} /> : <small className="tip"><Ico n="bulb" /><span>{tips[li].text}</span></small>)}
                     <small><Badge line={lg.line} /> {tr('towards')} {lg.toward} &middot; {cnt('stop', lg.stops)} &middot; {Math.round(lg.rideMin)} {tr('min')}</small>
                   </li>
@@ -94,7 +99,7 @@ function RouteCard({ fromPlace, toPlace, onModal, r, i, sel, when, onSelect, onS
   );
 }
 
-export function NavPage({ onModal, on, nav, fq, setFq, tq, setTq, store, when, onTime, onPickFrom, onPickTo, onSwap, onSelect, onShow, onStart, onShare, onChipStation, onChipTrip, onLocate, onBoard, onPlaces, onSetDest, onPickPlace, onBack, onReset, onSaveAs, onSaveCommute }) {
+export function NavPage({ onWalk, onModal, on, nav, fq, setFq, tq, setTq, store, when, onTime, onPickFrom, onPickTo, onSwap, onSelect, onShow, onStart, onShare, onChipStation, onChipTrip, onLocate, onBoard, onPlaces, onSetDest, onPickPlace, onBack, onReset, onSaveAs, onSaveCommute }) {
   const ready = nav.from && nav.to;
   const boardName = nav.from ? nav.from.name : nav.to ? nav.to.name : '';
   const mine = [];
@@ -149,7 +154,7 @@ export function NavPage({ onModal, on, nav, fq, setFq, tq, setTq, store, when, o
           onSelect={() => onSelect(i)} onShow={() => onShow(r)} onStart={() => onStart(r)} onShare={() => onShare(r)} />
       ))}
       {ready && nav.routes.length > 0 && <p className="note">{tr('estNote')}</p>}
-      {ready && on && <Alternatives key={nav.from.name + '>' + nav.to.name} nav={nav} store={store} inline onStart={onStart} />}
+      {ready && on && <Alternatives key={nav.from.name + '>' + nav.to.name} nav={nav} store={store} inline onStart={onStart} onWalk={onWalk} />}
 
       {boardName && <MiniBoard name={boardName} onMore={() => onBoard(boardName)} />}
 
